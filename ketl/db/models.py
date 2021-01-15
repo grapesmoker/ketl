@@ -1,16 +1,31 @@
+import requests
+import enum
+import tarfile
+import zipfile
+import gzip
+import lzma
+import shutil
+
+from abc import abstractmethod
+from datetime import timedelta
 from hashlib import sha1
 from pathlib import Path
+from furl import furl
+from typing import Optional, Set, List, Dict
+from marshmallow import Schema
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Boolean, Integer, String, ForeignKey, DateTime, JSON, Enum, Interval
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import JSON
 
-from ketl.utils.file_utils import file_hash
+from ketl.extractor.Rest import RestMixin
+from ketl.utils.file_utils import file_hash, uncompress
+from ketl.db.settings import get_engine, get_session
+
 
 Base = declarative_base()
 
 
-class API(Base):
+class API(Base, RestMixin):
 
     __tablename__ = 'api_config'
 
@@ -19,6 +34,12 @@ class API(Base):
     sources = relationship('Source', back_populates='api_config', lazy='joined')
     creds = relationship('Creds', back_populates='api_config', lazy='joined', uselist=False)
     hash = Column(String)
+
+    @abstractmethod
+    def setup(self):
+        """ Do whatever needs to be done to setup the API and get the
+            relevant metadata for the files to be downloaded """
+        raise NotImplementedError('setup is not implemented in the base class')
 
     def api_hash(self):
 
@@ -29,31 +50,34 @@ class API(Base):
         return s.hexdigest()
 
 
-class FileCache(Base):
+class ExpectedMode(enum.Enum):
+    auto = 'auto'
+    explicit = 'explicit'
+
+
+class CachedFile(Base):
 
     BLOCK_SIZE = 65536
 
-    __tablename__ = 'file_cache'
+    __tablename__ = 'cached_file'
 
     id = Column(Integer, primary_key=True)
-    resource_id = Column(Integer, ForeignKey('resource.id'))
-    resource = relationship('Resource')
-    source_id = Column(Integer, ForeignKey('config.source.id', ondelete='CASCADE'))
+    source_id = Column(Integer, ForeignKey('source.id', ondelete='CASCADE'))
     source = relationship('Source', back_populates='source_files')
-
+    expected_files = relationship('ExpectedFile', back_populates='cached_file')
     url = Column(String, index=True)
     url_params = Column(JSON)
-    path = Column(String, index=True)
+    path = Column(String, index=True)  # path relative to source
     last_download = Column(DateTime, nullable=True, index=True)
     last_update = Column(DateTime, nullable=True, index=True)
-    hash = Column(String)
-    cache_type = Column(String, index=True)
-    size = Column(Integer, index=True)
-
-    __mapper_args__ = {
-        'polymorphic_identity': 'file_cache',
-        'polymorphic_on': cache_type
-    }
+    refresh_interval = Column(Interval, nullable=True, index=True, default=timedelta(days=7))
+    hash = Column(String, nullable=True)
+    cache_type = Column(String, index=True, nullable=True)
+    size = Column(Integer, index=True, nullable=True)
+    is_archive = Column(Boolean, index=True, default=False)
+    extract_to = Column(String, index=True, nullable=True)
+    expected_mode = Column(Enum(ExpectedMode), index=True, default=ExpectedMode.explicit)
+    meta = Column(JSON, index=True, nullable=True)
 
     @property
     def file_hash(self):
@@ -65,6 +89,61 @@ class FileCache(Base):
         else:
             return sha1()
 
+    def uncompress(self):
+
+        extract_dir = Path(self.extract_to) if self.extract_to is not None and self.extract_to != '' else Path('.')
+
+        if self.is_archive:
+            if tarfile.is_tarfile(self.path):
+                tf = tarfile.open(self.path)
+                archived_paths = {Path(file) for file in tf.getnames()}
+                if self.expected_mode == ExpectedMode.auto:
+                    self._generate_expected_files(archived_paths)
+                    tf.extractall(path=extract_dir)
+                elif self.expected_mode == ExpectedMode.explicit:
+                    expected_paths: Set[Path] = {Path(file.path) for file in self.expected_files}
+                    extractable_paths = expected_paths & archived_paths
+                    for path in extractable_paths:
+                        if path.is_absolute() or str(path).startswith('..'):
+                            raise ValueError(f'Invalid path present in archive: {path}. '
+                                             f'Paths must not be absolute or begin with ..')
+                        target = extract_dir / path
+                        with open(target, 'wb') as target_file:
+                            with tf.extractfile(str(path)) as source_file:
+                                shutil.copyfileobj(source_file, target_file)
+            elif zipfile.is_zipfile(self.path):
+                zf = zipfile.ZipFile(self.path)
+                archived_paths = {Path(file) for file in zf.namelist()}
+                if self.expected_mode == ExpectedMode.auto:
+                    self._generate_expected_files(archived_paths)
+                    zf.extractall(path=extract_dir)
+                elif self.expected_mode == ExpectedMode.explicit:
+                    expected_paths: Set[Path] = {Path(file.path) for file in self.expected_files}
+                    extractable_paths = expected_paths & archived_paths
+                    for path in extractable_paths:
+                        zf.extract(str(path), path=extract_dir)
+            elif self.path.endswith('.gz'):
+                result_file = extract_dir / Path(self.path).stem
+                with open(result_file, 'wb') as target:
+                    with gzip.open(self.path, 'r') as source:
+                        shutil.copyfileobj(source, target)
+            elif Path(self.path).suffix in ['.xz', '.lz', '.lzma']:
+                result_file = extract_dir / Path(self.path).stem
+                with open(result_file, 'wb') as target:
+                    with lzma.open(self.path, 'r') as source:
+                        shutil.copyfileobj(source, target)
+
+    def _generate_expected_files(self, archived_paths: Set[Path]) -> None:
+
+        session = get_session()
+
+        expected_paths: Set[ExpectedFile] = {Path(file.path) for file in self.expected_files}
+        missing_paths = archived_paths - expected_paths
+        for path in missing_paths:
+            expected_file = ExpectedFile(path=path, cached_file=self)
+            session.add(expected_file)
+        session.commit()
+
 
 class Creds(Base):
 
@@ -72,7 +151,7 @@ class Creds(Base):
 
     id = Column(Integer, primary_key=True)
     api_config_id = Column(Integer, ForeignKey('api_config.id', ondelete='CASCADE'))
-    api_config = relationship('APIConfig', back_populates='creds')
+    api_config = relationship('API', back_populates='creds')
     creds_details = Column(JSON)
 
 
@@ -85,8 +164,8 @@ class Source(Base):
     base_url = Column(String, index=True)
     data_dir = Column(String, index=True)
     api_config_id = Column(Integer, ForeignKey('api_config.id', ondelete='CASCADE'))
-    api_config = relationship('APIConfig', back_populates='sources')
-    source_files = relationship('FileCache', back_populates='source',
+    api_config = relationship('API', back_populates='sources')
+    source_files = relationship('CachedFile', back_populates='source',
                                 cascade='all, delete-orphan',
                                 passive_deletes=True,
                                 lazy='joined')
@@ -118,8 +197,12 @@ class ExpectedFile(Base):
 
     id = Column(Integer, primary_key=True)
     path = Column(String, index=True)
-    source_id = Column(Integer, ForeignKey('source.id', ondelete='CASCADE'))
-    source = relationship('Source', back_populates='expected_files')
+    hash = Column(String)
+    size = Column(Integer, index=True)
+    # source_id = Column(Integer, ForeignKey('source.id', ondelete='CASCADE'))
+    # source = relationship('Source', back_populates='expected_files')
+    cached_file_id = Column(Integer, ForeignKey('cached_file.id', ondelete='CASCADE'))
+    cached_file = relationship('CachedFile', back_populates='expected_files')
 
     @property
     def file_hash(self):
@@ -129,3 +212,5 @@ class ExpectedFile(Base):
             s.update(file_hash(Path(self.path).resolve()).digest())
         return s
 
+
+Base.metadata.create_all(get_engine())

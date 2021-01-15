@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
 
 
-DB_CONN_STRING = os.getenv('DB_DSN', 'postgresql://humanbase:humanbase@localhost/humanbase')
+DB_CONN_STRING = os.getenv('DB_DSN', 'sqlite:///ketl.db')
 
 
 def get_engine():

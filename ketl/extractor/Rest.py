@@ -1,16 +1,13 @@
 import requests
 
-from abc import abstractmethod
 from marshmallow import Schema
 from typing import Optional
 from urllib.parse import urljoin
-from ketl.db.settings import get_session
-from ketl.db.models import API
 
 
 # does this need to be separate from the model?
 
-class BaseAPI:
+class RestMixin:
 
     def get(self, base_url, resource, params=None, data_schema: Schema = None, result_schema: Schema = None, **kwargs):
 
@@ -56,9 +53,3 @@ class BaseAPI:
             return result_schema.load(data=json_result)
         else:
             return json_result
-
-    @abstractmethod
-    def setup(self):
-        """ Do whatever needs to be done to setup the API and get the
-            relevant metadata for the files to be downloaded """
-        raise NotImplementedError('setup is not implemented in the base class')

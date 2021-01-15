@@ -18,78 +18,71 @@ class NoValidSourcesError(AdapterError):
     pass
 
 
-class Transformer:
+class BaseTransformer:
+
+    # TODO: init should take the configuration kwargs
 
     SCHEMA = None
     COLUMN_NAMES = None
-    DB_TABLE = None
-    DB_SCHEMA = None
 
-    def __init__(self, output_directory: Union[str, Path], source_files: List[str]):
+    def __init__(self, **kwargs):
 
-        self.output_directory = output_directory
-        self.source_files = source_files
+        self.passed_kwargs = kwargs
 
     @abstractmethod
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    def transform(self, source_files: List[Path]) -> pd.DataFrame:
 
         raise NotImplementedError
 
     @abstractmethod
-    def build_data_frame(self):
-
-        raise NotImplementedError
-
-    @abstractmethod
-    def process(self, dat_output_dir):
+    def _build_data_frame(self, source_files: List[Path]) -> pd.DataFrame:
 
         raise NotImplementedError
 
 
-class DelimitedTableTransformer(Transformer):
+class DelimitedTableTransformer(BaseTransformer):
 
-    COLUMN_NAMES = None
-    SCHEMA = None
-    COMMENT = None
-    DELIMITER = None
-    DATE_COLS = None
-    INDEX_COL = None
-    HEADER = 'infer'
-    TRANSPOSE = False
-    SKIP_ROWS = None
-    CONCAT_ON_AXIS = None
-    ITERATOR = True
+    def __init__(self, **kwargs):
 
-    CHUNK_SIZE = 50000
+        super(DelimitedTableTransformer, self).__init__(**kwargs)
+        self.transpose = self.passed_kwargs.pop('transpose', False)
+        self.concat_on_axis = self.passed_kwargs.pop('concat_on_axis', None)
 
-    def build_data_frame(self):
+        self.reader_kwargs = {
+            'comment': None,
+            'names': None,
+            'delimiter': None,
+            'header': 'infer',
+            'dtype': None,
+            'index_col': None,
+            'parse_dates': None,
+            'skiprows': None,
+            'iterator': True,
+            'chunksize': 50000
+        }
+        self.reader_kwargs.update(self.passed_kwargs)
 
-        data_frames = [pd.read_csv(source_file, comment=self.COMMENT, names=self.COLUMN_NAMES, header=self.HEADER,
-                                   delimiter=self.DELIMITER, dtype=self.SCHEMA, index_col=self.INDEX_COL,
-                                   skiprows=self.SKIP_ROWS, parse_dates=self.DATE_COLS, iterator=self.ITERATOR,
-                                   chunksize=self.CHUNK_SIZE)
-                       for source_file in self.source_files]
+    def _build_data_frame(self, source_files: List[Path]):
+
+        data_frames = [pd.read_csv(source_file, **self.reader_kwargs) for source_file in source_files]
 
         # for the special case where every file is a column. this assumes all data can fit into memory
-        if self.CONCAT_ON_AXIS:
-            df = pd.concat(data_frames, axis=self.CONCAT_ON_AXIS)
+        if self.concat_on_axis:
+            df = pd.concat(data_frames, axis=self.concat_on_axis)
             yield df
         else:
             df_chain = chain(*data_frames)
 
             for chunk in df_chain:
-                if self.TRANSPOSE:
+                if self.transpose:
                     yield chunk.transpose()
                 else:
                     yield chunk
 
-    def transform(self, df: pd.DataFrame):
+    def transform(self, source_files: List[Path]) -> pd.DataFrame:
 
-        return df
-
-    def process(self, dat_output_dir: Path = None):
-
-        pass
+        for df in self._build_data_frame(source_files):
+            yield df
 
 
 class MatrixWriterMixin:
