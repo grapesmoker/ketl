@@ -67,6 +67,7 @@ class DelimitedTableTransformer(BaseTransformer):
         data_frames = [pd.read_csv(source_file, **self.reader_kwargs) for source_file in source_files]
 
         # for the special case where every file is a column. this assumes all data can fit into memory
+        # TODO: replace this with dask stuff so that things can be lazily concatenated
         if self.concat_on_axis:
             df = pd.concat(data_frames, axis=self.concat_on_axis)
             yield df
@@ -83,11 +84,4 @@ class DelimitedTableTransformer(BaseTransformer):
 
         for df in self._build_data_frame(source_files):
             yield df
-
-
-class MatrixWriterMixin:
-
-    @abstractmethod
-    def to_matrix(self, output_dir: Path) -> Path:
-        raise NotImplementedError
 
