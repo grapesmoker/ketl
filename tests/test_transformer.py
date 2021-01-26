@@ -1,20 +1,9 @@
 import pytest
-import zipfile
-import gzip
-import tarfile
-import lzma
-import shutil
 import io
 import pandas as pd
 
-from tempfile import NamedTemporaryFile, TemporaryDirectory
 from pathlib import Path
-from hashlib import sha1
 
-from tests.factories import APIFactory, SourceFactory, CachedFileFactory, ExpectedFileFactory, CredsFactory
-
-from ketl.db.settings import get_session
-from ketl.db import models
 from ketl.transformer.Transformer import BaseTransformer, DelimitedTableTransformer
 
 

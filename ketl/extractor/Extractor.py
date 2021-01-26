@@ -1,25 +1,19 @@
 import urllib.parse as up
-import zipfile
-import shutil
-import gzip
-import tarfile
 
 from abc import abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from ftplib import FTP
 from functools import partial
 from pathlib import Path
-from typing import List, Union, Optional, Set
+from typing import List, Union, Optional
 
 from furl import furl
 from smart_open import open as smart_open
 from tqdm import tqdm
 
-from ketl.db.models import API, CachedFile, ExpectedFile
+from ketl.db.models import API, CachedFile
 from ketl.db.settings import get_session
-
-# from src.network.apis import BaseAPI
 
 
 @dataclass
@@ -91,7 +85,7 @@ class DefaultExtractor(BaseExtractor):
         total_size = ftp.size(parsed_url.path)
         updated = False
 
-        if cls._requires_update(target_file, total_size, 7) or force_download:
+        if cls._requires_update(target_file, total_size, source_file.refresh_interval) or force_download:
 
             bar = tqdm(total=total_size, unit='B', unit_scale=True) if show_progress else None
 
@@ -101,7 +95,8 @@ class DefaultExtractor(BaseExtractor):
                 ftp.retrbinary(f'RETR {parsed_url.path}',
                                partial(cls._ftp_writer, f, bar=bar),
                                blocksize=cls.BLOCK_SIZE)
-            bar.close()
+            if bar:
+                bar.close()
             updated = True
 
         return updated
@@ -122,8 +117,7 @@ class DefaultExtractor(BaseExtractor):
         updated = False
         with smart_open(url.url, 'rb', ignore_ext=True, transport_params=transport_params) as r:
             total_size = getattr(r, 'content_length', -1)
-            if cls._requires_update(target_file, total_size, 7) or force_download:
-                source_file.fresh_data = True
+            if cls._requires_update(target_file, total_size, source_file.refresh_interval) or force_download:
                 target_file.parent.mkdir(exist_ok=True, parents=True)
                 bar = tqdm(total=total_size, unit='B', unit_scale=True) if show_progress else None
                 with open(target_file.as_posix(), 'wb') as f:
@@ -141,7 +135,7 @@ class DefaultExtractor(BaseExtractor):
         dest.write(block)
 
     @staticmethod
-    def _requires_update(target_file: Path, total_size: int, time_delta: int = None) -> bool:
+    def _requires_update(target_file: Path, total_size: int, time_delta: timedelta = None) -> bool:
 
         if target_file.exists():
             stat = target_file.stat()
@@ -149,7 +143,7 @@ class DefaultExtractor(BaseExtractor):
             # if either the sizes match up or the size can't be obtained but the file is recent
             return not ((existing_size == total_size)
                         or (total_size == -1 and
-                            (datetime.now() - datetime.fromtimestamp(stat.st_mtime)).days < time_delta))
+                            (datetime.now() - datetime.fromtimestamp(stat.st_mtime)) < time_delta))
         else:
             return True
 
@@ -158,10 +152,10 @@ class DefaultExtractor(BaseExtractor):
 
         while 1:
             buf = source.read(block_size)
-            if not buf:
-                break
             if bar:
                 bar.update(len(buf))
+            if not buf:
+                break
             target.write(buf)
         if bar:
             bar.close()
@@ -170,7 +164,7 @@ class DefaultExtractor(BaseExtractor):
                  show_progress=False, force_download=False) -> Optional[CachedFile]:
 
         try:
-            parsed_url = up.urlparse(source_file.url)
+            parsed_url = up.urlparse(f'{source_file.source.base_url}/{source_file.url}')
             if parsed_url.scheme == 'ftp':
                 result = self._fetch_ftp_file(source_file, target_file,
                                               show_progress=show_progress,
@@ -193,7 +187,7 @@ class DefaultExtractor(BaseExtractor):
             return None
 
     @staticmethod
-    def _update_file_cache(source_file, target_file: Path):
+    def _update_file_cache(source_file: CachedFile, target_file: Path):
 
         session = get_session()
         source_file.path = str(target_file)

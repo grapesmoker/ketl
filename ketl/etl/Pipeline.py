@@ -8,8 +8,7 @@ from ketl.transformer.Transformer import BaseTransformer
 from ketl.loader.Loader import BaseLoader
 
 
-class InvalidPipeline(Exception):
-
+class InvalidPipelineError(Exception):
     pass
 
 
@@ -21,6 +20,10 @@ class ETLPipeline:
                  fanout: Dict[Union[BaseExtractor, BaseTransformer, BaseLoader],
                               Union[List[BaseTransformer], List[BaseLoader]]] = None):
 
+        extractors = extractors or []
+        transformers = transformers or []
+        loaders = loaders or []
+
         if not fanout:
             self.fanout: Dict[Union[BaseExtractor, BaseTransformer, BaseLoader],
                               Union[List[BaseTransformer], List[BaseLoader]]] = defaultdict(list)
@@ -29,16 +32,17 @@ class ETLPipeline:
             for transformer, loader in product(transformers, loaders):
                 self.fanout[transformer].append(loader)
         else:
-            for k, v in self.fanout.items():
-                if isinstance(k, BaseExtractor) and not isinstance(v, BaseTransformer):
-                    raise InvalidPipeline(f'An Extractor {k} is attached to something other than a Transformer: {v}.')
-                elif k is BaseTransformer and not isinstance(v, BaseLoader):
-                    raise InvalidPipeline(f'A Transformer {k} is attached to something other than a Loader: {v}.')
+            for k, v in fanout.items():
+                if isinstance(k, BaseExtractor) and not all(map(lambda item: isinstance(item, BaseTransformer), v)):
+                    raise InvalidPipelineError(f'An Extractor {k} is attached to something other than a Transformer: {v}.')
+                elif isinstance(k, BaseTransformer) and not all(map(lambda item: isinstance(item, BaseLoader), v)):
+                    raise InvalidPipelineError(f'A Transformer {k} is attached to something other than a Loader: {v}.')
             self.fanout = fanout
 
     def execute(self):
 
-        pass
+        extraction_results = self._fire_extractors()
+        self._fire_transformers(extraction_results)
 
     def _fire_extractors(self) -> Dict[BaseExtractor, List[Path]]:
 

@@ -2,6 +2,7 @@ from abc import abstractmethod
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
+from typing import Union
 
 import pandas as pd
 import pyarrow as pa
@@ -17,7 +18,7 @@ class InvalidLoaderConfiguration(Exception):
 
 class BaseLoader:
 
-    def __init__(self, destination: str, **kwargs):
+    def __init__(self, destination: Union[Path, str], **kwargs):
 
         self.destination = destination
 
@@ -51,7 +52,7 @@ class DataFrameLoader(BaseLoader):
         PARQUET = 0
         CSV = 1
 
-    def __init__(self, destination: str, **kwargs):
+    def __init__(self, destination: Union[Path, str], **kwargs):
         super().__init__(destination)
         self.dest_path = Path(self.destination)
 
@@ -101,7 +102,6 @@ class DatabaseLoader(BaseLoader):
 
     def __init__(self, destination: str, **kwargs):
 
-        self.init_table = False
         self.engine = get_engine()
         self.schema = kwargs.pop('schema', None)
         self.kwargs = kwargs
