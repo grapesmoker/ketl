@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from ketl.db.models import API, CachedFile
 from ketl.db.settings import get_session
+from ketl.utils.file_utils import file_hash
 
 
 @dataclass
@@ -35,9 +36,14 @@ class DefaultExtractor(BaseExtractor):
 
     BLOCK_SIZE = 16384
 
-    def __init__(self, api_config: API, show_progress=False):
+    def __init__(self, api_config: Union[API, int, str], show_progress=False):
 
-        self.api = api_config
+        if type(api_config) is int:
+            self.api = get_session().query(API).filter(API.id == api_config).one()
+        elif type(api_config) is str:
+            self.api = get_session().query(API).filter(API.name == api_config).one()
+        elif isinstance(api_config, API):
+            self.api = api_config
         self.headers = {}
         self.auth = None
         self.auth_token = None
@@ -66,13 +72,15 @@ class DefaultExtractor(BaseExtractor):
 
     def extract(self) -> List[Path]:
 
+        self.api = get_session().query(API).filter(API.id == self.api.id).one()
+
         results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=True)
                                      for st_pair in self.source_target_list]))
 
         expected_files = []
         for source_file in results:
             source_file.uncompress()  # safe to call on non-archives since nothing will happen
-            expected_files.extend(Path(file) for file in source_file.expected_files)
+            expected_files.extend(Path(file.path) for file in source_file.expected_files)
         return expected_files
 
     @classmethod
@@ -190,8 +198,7 @@ class DefaultExtractor(BaseExtractor):
     def _update_file_cache(source_file: CachedFile, target_file: Path):
 
         session = get_session()
-        source_file.path = str(target_file)
-        source_file.hash = source_file.file_hash.hexdigest()
+        source_file.hash = file_hash(target_file).hexdigest()
         source_file.last_download = datetime.now()
         source_file.size = target_file.stat().st_size
         session.add(source_file)

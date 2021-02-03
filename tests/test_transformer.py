@@ -55,6 +55,18 @@ def test_build_data_frame():
         else:
             assert False
 
+    s1.seek(0)
+    s2.seek(0)
+
+    for i, df in enumerate(transformer.transform([s1, s2])):
+        assert len(df) == 2
+        if i == 0:
+            assert df.equals(df1_expected)
+        elif i == 1:
+            assert df.equals(df2_expected)
+        else:
+            assert False
+
 
 def test_build_data_frame_transpose():
 
@@ -73,6 +85,18 @@ def test_build_data_frame_transpose():
     df2_expected = pd.DataFrame.from_records([(7, 10), (8, 11), (9, 12)], columns=[0, 1], index=['x', 'y', 'z'])
 
     for i, df in enumerate(transformer._build_data_frame([s1, s2])):
+        assert len(df) == 3
+        if i == 0:
+            assert df.equals(df1_expected)
+        elif i == 1:
+            assert df.equals(df2_expected)
+        else:
+            assert False
+
+    s1.seek(0)
+    s2.seek(0)
+
+    for i, df in enumerate(transformer.transform([s1, s2])):
         assert len(df) == 3
         if i == 0:
             assert df.equals(df1_expected)

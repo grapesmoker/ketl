@@ -22,6 +22,37 @@ def test_api_config(session):
 
     assert api.id is not None
 
+    api = get_session().query(models.API).filter(models.API.name == 'my nice api').one()
+    assert api.name == 'my nice api'
+
+    api = models.API()
+    api.setup()
+    api = get_session().query(models.API).filter(models.API.name == 'API').one()
+    assert api.name == 'API'
+
+
+def test_api_get_instance(session):
+
+    instance1 = models.API.get_instance(models.API)
+    assert isinstance(instance1, models.API)
+    instance2 = models.API.get_instance(models.API)
+    assert isinstance(instance2, models.API)
+    assert instance1 == instance2
+
+
+def test_api_get_expected_files(session):
+
+    api = APIFactory()
+    source = SourceFactory(api_config=api)
+    cf1 = CachedFileFactory(path='path1', source=source)
+    cf2 = CachedFileFactory(path='path2', source=source)
+    ef1 = ExpectedFileFactory(path='file1', cached_file=cf1)
+    ef2 = ExpectedFileFactory(path='file2', cached_file=cf1)
+    ef3 = ExpectedFileFactory(path='file3', cached_file=cf2)
+
+    assert api.expected_files == [ef1, ef2, ef3]
+    assert source.expected_files == [ef1, ef2, ef3]
+
 
 def test_expected_file_hash(session, temp_dir):
 

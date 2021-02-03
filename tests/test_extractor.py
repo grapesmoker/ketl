@@ -74,6 +74,18 @@ def test_source_target_path():
     assert expected_source_targets == extractor.source_target_list
 
 
+def test_ftp_writer():
+
+    target = io.BytesIO()
+
+    bar = tqdm(1)
+    DefaultExtractor._ftp_writer(target, b'hello world', bar=bar)
+    target.seek(0)
+    bar.close()
+
+    assert target.read() == b'hello world'
+
+
 def test_generic_writer():
 
     size = 32768
@@ -119,7 +131,7 @@ def test_update_cache_file(session, temp_dir):
     api: models.API = APIFactory(name='my nice api')
     extractor = DefaultExtractor(api)
 
-    cached_file: models.CachedFile = CachedFileFactory(path='path/to/file')
+    cached_file: models.CachedFile = CachedFileFactory(path=tf.name)
     extractor._update_file_cache(cached_file, Path(tf.name))
 
     cached_file = session.query(models.CachedFile).get(cached_file.id)

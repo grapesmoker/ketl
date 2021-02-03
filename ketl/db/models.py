@@ -11,14 +11,18 @@ from datetime import timedelta
 from hashlib import sha1
 from pathlib import Path
 from furl import furl
-from typing import Optional, Set, List, Dict
+from typing import Optional, Set, List, Dict, Type
 from marshmallow import Schema
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Boolean, Integer, String, ForeignKey, DateTime, JSON, Enum, Interval
+from sqlalchemy import (
+    Column, Boolean, Integer, String, ForeignKey, DateTime,
+    JSON, Enum, Interval, UniqueConstraint
+)
 from sqlalchemy.orm import relationship
 
 from ketl.extractor.Rest import RestMixin
 from ketl.utils.file_utils import file_hash
+from ketl.utils.db_utils import get_or_create
 from ketl.db.settings import get_engine, get_session
 
 
@@ -32,18 +36,23 @@ class API(Base, RestMixin):
     id = Column(Integer, primary_key=True)
     name = Column(String, index=True, unique=True)
     description = Column(String, index=True)
-    sources = relationship('Source', back_populates='api_config', lazy='joined')
+    sources = relationship('Source', back_populates='api_config', lazy='joined', enable_typechecks=False)
     creds = relationship('Creds', back_populates='api_config', lazy='joined', uselist=False)
     hash = Column(String)
 
     @abstractmethod
     def setup(self):
 
+        if not self.name:
+            self.name = self.__class__.__name__
+
         session = get_session()
         existing_api = session.query(API).filter(API.name == self.name).one_or_none()
         if not existing_api:
             session.add(self)
             session.commit()
+        else:
+            self.id = existing_api.id
 
     def api_hash(self):
 
@@ -53,10 +62,25 @@ class API(Base, RestMixin):
 
         return s.hexdigest()
 
+    @staticmethod
+    def get_instance(model: Type['API'], name=None):
+
+        name = name or model.__name__
+        instance, created = get_or_create(model, name=name)
+        return instance
+
+    @property
+    def expected_files(self):
+        return [expected_file for source in self.sources
+                for cached_file in source.source_files
+                for expected_file in cached_file.expected_files]
+
 
 class ExpectedMode(enum.Enum):
+
     auto = 'auto'
     explicit = 'explicit'
+    self = 'self'
 
 
 class CachedFile(Base):
@@ -64,6 +88,10 @@ class CachedFile(Base):
     BLOCK_SIZE = 65536
 
     __tablename__ = 'cached_file'
+
+    __table_args__ = (
+        UniqueConstraint('source_id', 'url', 'path'),
+    )
 
     id = Column(Integer, primary_key=True)
     source_id = Column(Integer, ForeignKey('source.id', ondelete='CASCADE'))
@@ -81,7 +109,7 @@ class CachedFile(Base):
     is_archive = Column(Boolean, index=True, default=False)
     extract_to = Column(String, index=True, nullable=True)
     expected_mode = Column(Enum(ExpectedMode), index=True, default=ExpectedMode.explicit)
-    meta = Column(JSON, index=True, nullable=True)
+    meta = Column(JSON, nullable=True)
 
     @property
     def full_path(self) -> Path:
@@ -111,6 +139,11 @@ class CachedFile(Base):
                 self._extract_gzip(extract_dir, expected_paths)
             elif Path(self.path).suffix in ['.xz', '.lz', '.lzma']:
                 self._extract_lzma(extract_dir, expected_paths)
+        elif self.expected_mode == ExpectedMode.self:
+            expected_file = ExpectedFile(cached_file=self, path=str(Path(self.source.data_dir) / self.path))
+            session = get_session()
+            session.add(expected_file)
+            session.commit()
 
     def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path]):
         tf = tarfile.open(self.path)
@@ -181,12 +214,16 @@ class Source(Base):
 
     __tablename__ = 'source'
 
+    __table_args__ = (
+        UniqueConstraint('base_url', 'data_dir', 'api_config_id'),
+    )
+
     id = Column(Integer, primary_key=True)
     source_type = Column(String, index=True)
     base_url = Column(String, index=True)
     data_dir = Column(String, index=True)
     api_config_id = Column(Integer, ForeignKey('api_config.id', ondelete='CASCADE'))
-    api_config = relationship('API', back_populates='sources')
+    api_config = relationship('API', back_populates='sources', enable_typechecks=False)
     source_files = relationship('CachedFile', back_populates='source',
                                 cascade='all, delete-orphan',
                                 passive_deletes=True,
@@ -196,6 +233,11 @@ class Source(Base):
         'polymorphic_identity': 'source',
         'polymorphic_on': source_type
     }
+
+    @property
+    def expected_files(self):
+        return [expected_file for cached_file in self.source_files
+                for expected_file in cached_file.expected_files]
 
     @property
     def source_hash(self):
@@ -211,14 +253,16 @@ class ExpectedFile(Base):
 
     __tablename__ = 'expected_file'
 
+    __table_args__ = (
+        UniqueConstraint('path', 'cached_file_id'),
+    )
+
     BLOCK_SIZE = 65536
 
     id = Column(Integer, primary_key=True)
     path = Column(String, index=True)
     hash = Column(String)
     size = Column(Integer, index=True)
-    # source_id = Column(Integer, ForeignKey('source.id', ondelete='CASCADE'))
-    # source = relationship('Source', back_populates='expected_files')
     cached_file_id = Column(Integer, ForeignKey('cached_file.id', ondelete='CASCADE'))
     cached_file = relationship('CachedFile', back_populates='expected_files')
 
@@ -232,5 +276,3 @@ class ExpectedFile(Base):
 
         return sha1()
 
-
-Base.metadata.create_all(get_engine())
