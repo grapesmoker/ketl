@@ -30,6 +30,10 @@ Base = declarative_base()
 
 
 class API(Base, RestMixin):
+    """
+    The API class is the center of the organizational model for kETL. It configures the basic logic
+    of accessing some set of resources, setting up credentials as needed.
+    """
 
     __tablename__ = 'ketl_api_config'
 
@@ -42,7 +46,11 @@ class API(Base, RestMixin):
 
     @abstractmethod
     def setup(self):
-
+        """
+        All subclasses of API must implement the setup method to generate the actual configuration
+        that will specify what is to be downloaded.
+        :return:
+        """
         if not self.name:
             self.name = self.__class__.__name__
 
@@ -55,7 +63,11 @@ class API(Base, RestMixin):
             self.id = existing_api.id
 
     @property
-    def api_hash(self):
+    def api_hash(self) -> str:
+        """
+        Hash the API by hashing all of its sources and return the hex digest.
+        :return: Hex digest of the hash.
+        """
 
         s = sha1(bytes(self.name, 'utf-8'))
         for source in self.sources:
@@ -64,14 +76,23 @@ class API(Base, RestMixin):
         return s.hexdigest()
 
     @staticmethod
-    def get_instance(model: Type['API'], name=None):
-
+    def get_instance(model: Type['API'], name=None) -> 'API':
+        """
+        Retrieve an instance of the given subclass of API. There can only be one instance per name.
+        :param model: A subclass of API.
+        :param name: An optional name. Only one API per name is allowed.
+        :return: An instance of the provided subclass of API.
+        """
         name = name or model.__name__
         instance, created = get_or_create(model, name=name)
         return instance
 
     @property
-    def expected_files(self):
+    def expected_files(self) -> List['ExpectedFile']:
+        """
+        Retrieve all the expected files under this API.
+        :return: A list of expected files.
+        """
         return [expected_file for source in self.sources
                 for cached_file in source.source_files
                 for expected_file in cached_file.expected_files]
@@ -85,6 +106,9 @@ class ExpectedMode(enum.Enum):
 
 
 class CachedFile(Base):
+    """
+    The CachedFile class represents a single file that may be downloaded by an extractor.
+    """
 
     BLOCK_SIZE = 65536
 
@@ -114,11 +138,18 @@ class CachedFile(Base):
 
     @property
     def full_path(self) -> Path:
+        """
+        Return the absolute path of the cached file.
+        :return: The absolute path of the file.
+        """
         return Path(self.source.data_dir).resolve() / self.path
 
     @property
     def file_hash(self):
-
+        """
+        Return the hash of the file.
+        :return: The hash object (not the digest or the hex digest!) of the file.
+        """
         if self.path:
             path = Path(self.path).resolve()
             if path.exists() and not path.is_dir():
@@ -127,7 +158,11 @@ class CachedFile(Base):
         return sha1()
 
     def preprocess(self) -> Optional['ExpectedFile']:
-
+        """
+        Preprocess the file, extracting and creating expected files as needed.
+        :return: Optionally returns an expected file, if one was created directly from the
+            cached file. Otherwise returns None.
+        """
         extract_dir = Path(self.extract_to) if self.extract_to is not None and self.extract_to != '' else Path('.')
 
         if self.is_archive:
@@ -145,6 +180,12 @@ class CachedFile(Base):
             return ExpectedFile(cached_file=self, path=str(Path(self.source.data_dir) / self.path))
 
     def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path]):
+        """
+        Extracts a tarball into the target directory. Creates expected files as needed.
+        :param extract_dir: The directory to which the tarball is to be extracted.
+        :param expected_paths: The list of expected paths that should be generated from the archive.
+        :return: None
+        """
         tf = tarfile.open(self.path)
         archived_paths = {Path(file) for file in tf.getnames()}
         if self.expected_mode == ExpectedMode.auto:
@@ -163,6 +204,12 @@ class CachedFile(Base):
                             shutil.copyfileobj(source_file, target_file)
 
     def _extract_zip(self, extract_dir: Path, expected_paths: Set[Path]):
+        """
+        Extracts a zip archive into the target directory. Creates expected files as needed.
+        :param extract_dir: The directory to which the archive is to be extracted.
+        :param expected_paths: The list of expected paths that should be generated from the archive.
+        :return: None
+        """
         zf = zipfile.ZipFile(self.path)
         archived_paths = {Path(file) for file in zf.namelist()}
         if self.expected_mode == ExpectedMode.auto:
@@ -175,13 +222,25 @@ class CachedFile(Base):
                     zf.extract(str(path), path=extract_dir)
 
     def _extract_gzip(self, extract_dir: Path, expected_paths: Set[Path]):
+        """
+        Extracts a gz file into the target directory.
+        :param extract_dir: The directory to which the archive is to be extracted.
+        :param expected_paths: The list of expected paths that should be generated from the archive.
+        :return: None
+        """
         result_file = extract_dir / Path(self.path).stem
         if result_file in expected_paths:
             with open(result_file, 'wb') as target:
                 with gzip.open(self.path, 'r') as source:
                     shutil.copyfileobj(source, target)
 
-    def _extract_lzma(self, extract_dir: Path, expected_paths: Set[Path]):
+    def _extract_lzma(self, extract_dir: Path, expected_paths: Set[Path]) -> None:
+        """
+        Extracts an lzma file into the target directory.
+        :param extract_dir: The directory to which the archive is to be extracted.
+        :param expected_paths: The list of expected paths that should be generated from the archive.
+        :return: None
+        """
         result_file = extract_dir / Path(self.path).stem
         if result_file in expected_paths:
             with open(result_file, 'wb') as target:
@@ -189,7 +248,13 @@ class CachedFile(Base):
                     shutil.copyfileobj(source, target)
 
     def _generate_expected_files(self, extract_dir: Path, archived_paths: Set[Path], expected_paths: Set[Path]) -> None:
-
+        """
+        Generates expected file entries in the table if they do not already exist.
+        :param extract_dir: The directory to which the archive is to be extracted.
+        :param archived_paths: The list of paths contained in the archive.
+        :param expected_paths: The list of expected files.
+        :return: None
+        """
         session = get_session()
 
         missing_paths = {path for path in archived_paths if extract_dir / path not in expected_paths}
@@ -199,6 +264,12 @@ class CachedFile(Base):
 
 
 class Creds(Base):
+    """
+    A simple class for keeping track of credentials. Details are stored in a JSON blob.
+
+    SECURITY WARNING: creds are currently stored unencrypted. Don't put anything in here
+    that requires real security.
+    """
 
     __tablename__ = 'ketl_creds'
 
@@ -209,6 +280,9 @@ class Creds(Base):
 
 
 class Source(Base):
+    """
+    A class representing a source of some data. Can be subclassed on source type.
+    """
 
     __tablename__ = 'ketl_source'
 
@@ -248,7 +322,9 @@ class Source(Base):
 
 
 class ExpectedFile(Base):
-
+    """
+    A class representing expected files to actually be processed.
+    """
     __tablename__ = 'ketl_expected_file'
 
     __table_args__ = (
@@ -264,11 +340,15 @@ class ExpectedFile(Base):
     cached_file_id = Column(Integer, ForeignKey('ketl_cached_file.id', ondelete='CASCADE'))
     cached_file = relationship('CachedFile', back_populates='expected_files')
     processed = Column(Boolean, default=False, index=True)
+    file_type = Column(String, index=True)
     last_processed = Column(DateTime, index=True)
 
     @property
     def file_hash(self):
-
+        """
+        Hash the expected file.
+        :return: The hash object.
+        """
         if self.path:
             path = Path(self.path).resolve()
             if path.exists() and not path.is_dir():
