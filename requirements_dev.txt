@@ -10,7 +10,7 @@ twine==3.2.0
 Click==7.1.2
 pytest==6.1.2
 pytest-runner==5.2
-pandas==1.1.4
+pandas==1.2.1
 numpy==1.19.4
 sqlalchemy==1.3.20
 furl==2.1.0
