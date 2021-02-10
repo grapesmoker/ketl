@@ -1,10 +1,13 @@
 import pytest
 import io
 import pandas as pd
+import json
+from unittest import mock
 
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
-from ketl.transformer.Transformer import BaseTransformer, DelimitedTableTransformer
+from ketl.transformer.Transformer import BaseTransformer, DelimitedTableTransformer, JsonTableTransformer
 
 
 def test_base_transformer():
@@ -128,3 +131,109 @@ def test_build_data_frame_concat():
             assert df.equals(df1_expected)
         else:
             assert False
+
+
+def test_json_transformer_init():
+
+    kwargs = {'transpose': True, 'concat_on_axis': True, 'record_path': ['path1', 'path2'],
+              'snake_case_columns': True, 'columns': ['col1', 'col2']}
+    transformer = JsonTableTransformer(**kwargs)
+
+    assert transformer.transpose
+    assert transformer.concat_on_axis
+    assert transformer.record_path == ['path1', 'path2']
+    assert transformer.snake_case_columns
+    assert transformer.columns == ['col1', 'col2']
+
+
+def test_json_transformer_extract_data(tmp_path):
+
+    data = {
+        'foo': {
+            'bar': [
+                {'field1': 'foo'},
+                {'field2': 'bar'}
+            ]
+        }
+    }
+
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
+    tf.write(json.dumps(data).encode('utf-8'))
+    tf.close()
+
+    assert json.dumps(data['foo']['bar']) == JsonTableTransformer._extract_data(tf.name, ['foo', 'bar'])
+    assert json.dumps(data['foo']) == JsonTableTransformer._extract_data(tf.name, 'foo')
+
+    with pytest.raises(TypeError):
+        JsonTableTransformer._extract_data(tf.name, 1)
+
+
+def test_json_transformer_build_data_frame(tmp_path):
+
+    df_expected = pd.DataFrame.from_records([('foo1', 'bar1'), ('foo2', 'bar2')], columns=['field1', 'field2'])
+
+    data = [
+        {'field1': 'foo1', 'field2': 'bar1'},
+        {'field1': 'foo2', 'field2': 'bar2'}
+    ]
+
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
+    tf.write(json.dumps(data).encode('utf-8'))
+    tf.close()
+
+    transformer = JsonTableTransformer()
+
+    for df in transformer.transform([tf.name]):
+        assert df_expected.equals(df)
+
+    data = {
+        'foo': {
+            'bar': [
+                {'field1': 'foo1', 'field2': 'bar1'},
+                {'field1': 'foo2', 'field2': 'bar2'}
+            ]
+        }
+    }
+
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
+    tf.write(json.dumps(data).encode('utf-8'))
+    tf.close()
+
+    transformer = JsonTableTransformer(record_path=['foo', 'bar'])
+
+    for df in transformer.transform([tf.name]):
+        assert df_expected.equals(df)
+
+    # mock_record_path = mock.Mock()
+    # mock_record_path.side_effect = [ValueError, ValueError]
+    #
+    # transformer.record_path = mock_record_path
+
+
+def test_json_transformer_build_df_errors():
+
+    transformer = JsonTableTransformer()
+
+    transformer.skip_errors = True
+    dfs = transformer._build_data_frame([Path('file1')])
+    for df in dfs:
+        assert df.empty
+
+
+def test_json_transformer_snakecase_and_filter(tmp_path):
+
+    df_expected = pd.DataFrame.from_records([('foo1', ), ('foo2', )], columns=['my_field1'])
+
+    data = [
+        {'myField1': 'foo1', 'myField2': 'bar1'},
+        {'myField1': 'foo2', 'myField2': 'bar2'}
+    ]
+
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
+    tf.write(json.dumps(data).encode('utf-8'))
+    tf.close()
+
+    transformer = JsonTableTransformer(snake_case_columns=True, columns=['my_field1'])
+
+    for df in transformer.transform([tf.name]):
+        assert df_expected.equals(df)

@@ -106,14 +106,14 @@ def test_generic_writer():
     assert source.read() == target.read()
 
 
-def test_requires_update(temp_dir):
+def test_requires_update(tmp_path):
 
     api: models.API = APIFactory(name='my nice api')
     extractor = DefaultExtractor(api)
 
     assert extractor._requires_update(Path('some/file'), 1, timedelta(days=1))
 
-    tf = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf.write(b'hello world')
     tf.close()
 
@@ -122,9 +122,9 @@ def test_requires_update(temp_dir):
     assert extractor._requires_update(Path(tf.name), -1, timedelta(0))
 
 
-def test_update_cache_file(session, temp_dir):
+def test_update_cache_file(session, tmp_path):
 
-    tf = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf.write(b'hello world')
     tf.close()
 
@@ -142,9 +142,42 @@ def test_update_cache_file(session, temp_dir):
     assert cached_file.size == 11
 
 
+@mock.patch('ketl.extractor.Extractor.DefaultExtractor.get_file')
+@mock.patch('ketl.extractor.Extractor.DefaultExtractor.source_target_list', new_callable=mock.PropertyMock)
+def test_extract(mock_source_files_list, mock_get_file):
+
+    api: models.API = APIFactory()
+    source: models.Source = SourceFactory(api_config=api, data_dir='data/dir')
+
+    extractor = DefaultExtractor(api)
+
+    cached_file1: models.CachedFile = CachedFileFactory(url='url/to/file1', path='path/to/file1',
+                                                        expected_mode=models.ExpectedMode.self,
+                                                        source=source)
+    cached_file2: models.CachedFile = CachedFileFactory(url='url/to/file2', path='path/to/file2',
+                                                        expected_mode=models.ExpectedMode.self,
+                                                        source=source)
+    cached_file3: models.CachedFile = CachedFileFactory(url='url/to/file3', path='path/to/file3',
+                                                        expected_mode=models.ExpectedMode.self,
+                                                        source=source)
+
+    mock_source_files_list.return_value = [
+        SourceTargetPair(cached_file1, Path('path/to/file1')),
+        SourceTargetPair(cached_file2, Path('path/to/file2')),
+        SourceTargetPair(cached_file3, Path('path/to/file3')),
+    ]
+
+    mock_get_file.side_effect = [cached_file1, cached_file2, None]
+
+    expected_files = extractor.extract()
+
+    for i, ef in enumerate(expected_files):
+        assert str(ef) == f'data/dir/path/to/file{i + 1}'
+
+
 @mock.patch('ketl.extractor.Extractor.FTP')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._requires_update')
-def test_fetch_ftp(mock_requires_update, mock_ftp_class, temp_dir):
+def test_fetch_ftp(mock_requires_update, mock_ftp_class, tmp_path):
 
     mock_requires_update.return_value = True
 
@@ -160,7 +193,7 @@ def test_fetch_ftp(mock_requires_update, mock_ftp_class, temp_dir):
 
     cached_file: models.CachedFile = CachedFileFactory(url='url/to/file')
 
-    with NamedTemporaryFile(dir=temp_dir) as tf:
+    with NamedTemporaryFile(dir=tmp_path) as tf:
         result = extractor._fetch_ftp_file(cached_file, Path(tf.name), tqdm(1))
 
     assert result
@@ -172,7 +205,7 @@ def test_fetch_ftp(mock_requires_update, mock_ftp_class, temp_dir):
 @mock.patch('ketl.extractor.Extractor.smart_open')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._requires_update')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._generic_writer')
-def test_fetch_generic_file(mock_generic_writer, mock_requires_update, mock_smart_open, temp_dir):
+def test_fetch_generic_file(mock_generic_writer, mock_requires_update, mock_smart_open, tmp_path):
 
     mock_requires_update.return_value = True
 
@@ -188,7 +221,7 @@ def test_fetch_generic_file(mock_generic_writer, mock_requires_update, mock_smar
 
     cached_file: models.CachedFile = CachedFileFactory(url='url/to/file', url_params={'query': 'item'})
 
-    with NamedTemporaryFile(dir=temp_dir) as tf:
+    with NamedTemporaryFile(dir=tmp_path) as tf:
         result = extractor._fetch_generic_file(cached_file, Path(tf.name),
                                                headers={'Bearer': 'Token'},
                                                auth={'username': 'user', 'password': 'password'})

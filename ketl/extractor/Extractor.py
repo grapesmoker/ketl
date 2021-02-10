@@ -12,7 +12,7 @@ from furl import furl
 from smart_open import open as smart_open
 from tqdm import tqdm
 
-from ketl.db.models import API, CachedFile
+from ketl.db.models import API, CachedFile, ExpectedFile
 from ketl.db.settings import get_session
 from ketl.utils.file_utils import file_hash
 
@@ -77,10 +77,26 @@ class DefaultExtractor(BaseExtractor):
         results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=True)
                                      for st_pair in self.source_target_list]))
 
+        new_expected_files: List[ExpectedFile] = []
+
+        session = get_session()
+
+        for source_file in results:
+            ef = source_file.preprocess()  # safe to call on non-archives since nothing will happen
+            if ef:
+                new_expected_files.append(ef)
+
+        session.bulk_save_objects(new_expected_files)
+
+        # TODO: this is a bit awkward because all the new files are saved to the db
+        # TODO: but what we want to do is to return all the expected files from the
+        # TODO: cached file. but not for the whole api, just for the cached files
+        # TODO: we actually got
+
         expected_files = []
         for source_file in results:
-            source_file.uncompress()  # safe to call on non-archives since nothing will happen
-            expected_files.extend(Path(file.path) for file in source_file.expected_files)
+            expected_files.extend([Path(ef.path) for ef in source_file.expected_files])
+
         return expected_files
 
     @classmethod

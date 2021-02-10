@@ -31,22 +31,3 @@ def tables(engine):
     close_all_sessions()
     for m in metadata:
         m.drop_all(engine)
-
-
-@pytest.yield_fixture(scope='session')
-def temp_dir():
-
-    with TemporaryDirectory(dir='./tests') as td:
-        yield td
-        # context should automatically cleanup the test dir
-
-
-# @pytest.yield_fixture
-# def cleanup(engine):
-#
-#     yield
-#     for table in Base.metadata.sorted_tables:
-#         with engine.connect() as con:
-#             trans = con.begin()
-#             con.execute(table.delete())
-#             trans.commit()

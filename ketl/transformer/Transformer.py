@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from itertools import chain
 from pathlib import Path
-from typing import List, Tuple, Union, Optional, Dict
+from typing import List, Tuple, Union, Optional, Dict, Callable
 from tqdm import tqdm
 
 import pandas as pd
@@ -28,7 +28,13 @@ class BaseTransformer:
     SCHEMA = None
     COLUMN_NAMES = None
 
-    def __init__(self, **kwargs):
+    def __init__(self, transpose: bool = False, concat_on_axis: Union[int, str] = None,
+                 columns: List[Union[str, int]] = None, skip_errors: bool = False, **kwargs):
+
+        self.transpose = transpose
+        self.concat_on_axis = concat_on_axis
+        self.columns = columns
+        self.skip_errors = skip_errors
 
         self.passed_kwargs = kwargs
 
@@ -45,11 +51,10 @@ class BaseTransformer:
 
 class DelimitedTableTransformer(BaseTransformer):
 
-    def __init__(self, **kwargs):
+    def __init__(self, transpose: bool = False, concat_on_axis: Union[str, int] = None,
+                 columns: List[Union[str, int]] = None, skip_errors: bool = False, **kwargs):
 
-        super(DelimitedTableTransformer, self).__init__(**kwargs)
-        self.transpose = self.passed_kwargs.pop('transpose', False)
-        self.concat_on_axis = self.passed_kwargs.pop('concat_on_axis', None)
+        super(DelimitedTableTransformer, self).__init__(transpose, concat_on_axis, columns, skip_errors, **kwargs)
 
         self.reader_kwargs = {
             'comment': None,
@@ -92,13 +97,17 @@ class DelimitedTableTransformer(BaseTransformer):
 class JsonTableTransformer(BaseTransformer):
 
     def __init__(self, record_path: Union[List[str], str] = None,
-                 snake_case_columns: bool = False, **kwargs):
-        super(JsonTableTransformer, self).__init__(**kwargs)
-        self.transpose = self.passed_kwargs.pop('transpose', False)
-        self.concat_on_axis = self.passed_kwargs.pop('concat_on_axis', None)
+                 snake_case_columns: bool = False,
+                 transpose: bool = False,
+                 concat_on_axis: Union[str, int] = None,
+                 columns: List[Union[str, int]] = None,
+                 skip_errors: bool = False,
+                 **kwargs):
+
+        super(JsonTableTransformer, self).__init__(transpose, concat_on_axis, columns, skip_errors, **kwargs)
+
         self.record_path = record_path
         self.snake_case_columns = snake_case_columns
-        self.columns = self.passed_kwargs.pop('columns', None)
 
         self.reader_kwargs = {
             'orient': None,
@@ -107,7 +116,6 @@ class JsonTableTransformer(BaseTransformer):
             'convert_axes': None,
             'convert_dates': True,
             'keep_default_dates': True,
-            'numpy': False,
             'precise_float': False,
             'date_unit': None,
             'encoding': None,
@@ -120,16 +128,23 @@ class JsonTableTransformer(BaseTransformer):
         self.reader_kwargs.update(self.passed_kwargs)
 
     @staticmethod
-    def _extract_data(filename: Union[Path, str], record_path: Union[List[str], str] = None) -> Union[Path, str]:
+    def _extract_data(filename: Union[Path, str], record_path: Union[List[str], str],
+                      serialize:bool = True) -> Union[dict, list, str]:
 
         with open(filename, 'r') as f:
-            data = json.load(f)
+            data: dict = json.load(f)
             if type(record_path) is str:
-                return json.dumps(data[record_path])
+                if serialize:
+                    return json.dumps(data[record_path])
+                else:
+                    return data[record_path]
             elif type(record_path) is list:
                 for item in record_path:
                     data = data[item]
-                return json.dumps(data)
+                if serialize:
+                    return json.dumps(data)
+                else:
+                    return data
             else:
                 raise TypeError('record_path must be a list or a string')
 
@@ -140,20 +155,32 @@ class JsonTableTransformer(BaseTransformer):
 
         for source_file in source_files:
 
-            if not self.record_path:
-                df = pd.read_json(source_file, **self.reader_kwargs)
-            else:
-                data = self._extract_data(source_file, self.record_path)
-                df = pd.read_json(data, **self.reader_kwargs)
+            try:
+                if not self.record_path:
+                    df = pd.read_json(source_file, **self.reader_kwargs)
+                    df._source_file = source_file
+                else:
+                    data = self._extract_data(source_file, self.record_path)
+                    df = pd.read_json(data, **self.reader_kwargs)
+                    df._source_file = source_file
 
-            yield df.transpose() if self.transpose else df
+                yield df.transpose() if self.transpose else df
+            except Exception as ex:
+                if self.skip_errors:
+                    print(f'skipping {source_file} due to error: {ex}')
+                    yield pd.DataFrame()
+                else:
+                    raise ex
 
     def transform(self, source_files: List[Path]) -> pd.DataFrame:
 
+        # TODO: move the renaming logic to the base and allow a mapper to be passed
+
         for df in self._build_data_frame(source_files):
-            if self.snake_case_columns:
-                df = df.rename(inflection.underscore, axis='columns')
-            if self.columns:
-                df = df[self.columns]
+            if not df.empty:
+                if self.snake_case_columns:
+                    df = df.rename(inflection.underscore, axis='columns')
+                if self.columns:
+                    df = df[self.columns]
 
             yield df

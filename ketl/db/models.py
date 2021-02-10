@@ -54,6 +54,7 @@ class API(Base, RestMixin):
         else:
             self.id = existing_api.id
 
+    @property
     def api_hash(self):
 
         s = sha1(bytes(self.name, 'utf-8'))
@@ -125,7 +126,7 @@ class CachedFile(Base):
 
         return sha1()
 
-    def uncompress(self):
+    def preprocess(self) -> Optional['ExpectedFile']:
 
         extract_dir = Path(self.extract_to) if self.extract_to is not None and self.extract_to != '' else Path('.')
 
@@ -139,11 +140,9 @@ class CachedFile(Base):
                 self._extract_gzip(extract_dir, expected_paths)
             elif Path(self.path).suffix in ['.xz', '.lz', '.lzma']:
                 self._extract_lzma(extract_dir, expected_paths)
+            return None
         elif self.expected_mode == ExpectedMode.self:
-            expected_file = ExpectedFile(cached_file=self, path=str(Path(self.source.data_dir) / self.path))
-            session = get_session()
-            session.add(expected_file)
-            session.commit()
+            return ExpectedFile(cached_file=self, path=str(Path(self.source.data_dir) / self.path))
 
     def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path]):
         tf = tarfile.open(self.path)
@@ -194,10 +193,9 @@ class CachedFile(Base):
         session = get_session()
 
         missing_paths = {path for path in archived_paths if extract_dir / path not in expected_paths}
-        for path in missing_paths:
-            expected_file = ExpectedFile(path=str(extract_dir / path), cached_file=self)
-            session.add(expected_file)
-        session.commit()
+        expected_files = [ExpectedFile(path=str(extract_dir / path), cached_file=self)
+                          for path in missing_paths]
+        session.bulk_save_objects(expected_files)
 
 
 class Creds(Base):
@@ -265,6 +263,8 @@ class ExpectedFile(Base):
     size = Column(Integer, index=True)
     cached_file_id = Column(Integer, ForeignKey('cached_file.id', ondelete='CASCADE'))
     cached_file = relationship('CachedFile', back_populates='expected_files')
+    processed = Column(Boolean, default=False, index=True)
+    last_processed = Column(DateTime, index=True)
 
     @property
     def file_hash(self):

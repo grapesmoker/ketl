@@ -31,6 +31,29 @@ def test_api_config(session):
     assert api.name == 'API'
 
 
+def test_api_hash(tmp_path):
+
+    api = APIFactory(name='my nice api')
+    initial_api_hash = api.api_hash
+    expected_api_hash = sha1(b'my nice api')
+
+    assert initial_api_hash == expected_api_hash.hexdigest()
+
+    source: models.Source = SourceFactory(base_url='http://base.url', data_dir='/download/dir', api_config=api)
+
+    with NamedTemporaryFile(dir=tmp_path, delete=False) as tf:
+        tf.write(b'hello world - cached file')
+        tf.close()
+
+        cached_file: models.CachedFile = CachedFileFactory(source=source, path=tf.name)
+
+    expected_api_hash.update(source.source_hash.digest())
+    api_hash = api.api_hash
+
+    assert api_hash != initial_api_hash
+    assert api_hash == expected_api_hash.hexdigest()
+
+
 def test_api_get_instance(session):
 
     instance1 = models.API.get_instance(models.API)
@@ -54,13 +77,13 @@ def test_api_get_expected_files(session):
     assert source.expected_files == [ef1, ef2, ef3]
 
 
-def test_expected_file_hash(session, temp_dir):
+def test_expected_file_hash(session, tmp_path):
 
     expected_file: models.ExpectedFile = ExpectedFileFactory(path='/path/to/nonexistent/file')
     default_hash = expected_file.file_hash
     assert default_hash is not None
 
-    with NamedTemporaryFile(dir=temp_dir) as tf:
+    with NamedTemporaryFile(dir=tmp_path) as tf:
         tf.write(b'hello world')
 
         expected_file: models.ExpectedFile = ExpectedFileFactory(path=tf.name)
@@ -68,12 +91,12 @@ def test_expected_file_hash(session, temp_dir):
         assert len(expected_file.file_hash.hexdigest()) > 0
 
 
-def test_cached_file_cache(session, temp_dir):
+def test_cached_file_cache(session, tmp_path):
 
     missing_cached_file: models.CachedFile = CachedFileFactory(path='/path/to/missing/file')
     assert missing_cached_file.file_hash.hexdigest() == sha1().hexdigest()
 
-    with NamedTemporaryFile(dir=temp_dir, delete=False) as tf:
+    with NamedTemporaryFile(dir=tmp_path, delete=False) as tf:
         tf.write(b'hello world - cached file')
         tf.close()
 
@@ -84,13 +107,13 @@ def test_cached_file_cache(session, temp_dir):
         assert cached_file_hash.hexdigest() != sha1().hexdigest()
 
 
-def test_source_hash(session, temp_dir):
+def test_source_hash(session, tmp_path):
 
     source: models.Source = SourceFactory(base_url='http://base.url', data_dir='/download/dir')
     source_hash = source.source_hash.hexdigest()
     assert source_hash == sha1(bytes(source.base_url + source.data_dir, 'utf-8')).hexdigest()
 
-    with NamedTemporaryFile(dir=temp_dir, delete=False) as tf:
+    with NamedTemporaryFile(dir=tmp_path, delete=False) as tf:
         tf.write(b'hello world - cached file')
         tf.close()
 
@@ -112,23 +135,24 @@ def test_cached_file_full_path(session):
     assert cached_file.full_path == Path('/download/dir/path/to/file')
 
 
-def test_cached_file_extract_gzip(temp_dir):
+def test_cached_file_extract_gzip(tmp_path):
 
-    tf = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf.write(b'hello world - gzip')
     tf.close()
 
     raw_file = Path(tf.name)
-    compressed_file = Path(temp_dir) / 'test.gz'
-    result_file = Path(temp_dir) / 'test'
+    compressed_file = Path(tmp_path) / 'test.gz'
+    result_file = Path(tmp_path) / 'test'
 
     with open(raw_file, 'rb') as tf:
         with gzip.open(compressed_file, mode='wb') as cf:
             shutil.copyfileobj(tf, cf)
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True, extract_to=temp_dir)
+    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
+                                                       extract_to=str(tmp_path))
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(result_file), cached_file=cached_file)
-    cached_file.uncompress()
+    cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
 
@@ -137,23 +161,24 @@ def test_cached_file_extract_gzip(temp_dir):
         assert data == b'hello world - gzip'
 
 
-def test_cached_file_extract_lzma(temp_dir):
+def test_cached_file_extract_lzma(tmp_path):
 
-    tf = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf.write(b'hello world - lzma')
     tf.close()
 
     raw_file = Path(tf.name)
-    compressed_file = Path(temp_dir) / 'test.xz'
-    result_file = Path(temp_dir) / 'test'
+    compressed_file = Path(tmp_path) / 'test.xz'
+    result_file = Path(tmp_path) / 'test'
 
     with open(raw_file, 'rb') as tf:
         with lzma.open(compressed_file, mode='wb') as cf:
             shutil.copyfileobj(tf, cf)
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True, extract_to=temp_dir)
+    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
+                                                       extract_to=str(tmp_path))
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(result_file), cached_file=cached_file)
-    cached_file.uncompress()
+    cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
 
@@ -162,21 +187,21 @@ def test_cached_file_extract_lzma(temp_dir):
         assert data == b'hello world - lzma'
 
 
-def test_cached_file_extract_zip(temp_dir):
+def test_cached_file_extract_zip(tmp_path):
 
-    temp_path = Path(temp_dir)
+    temp_path = Path(tmp_path)
 
-    tf1 = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf1 = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf1.write(b'expected file')
     tf1.close()
     tf1_path = temp_path / Path(tf1.name).name
 
-    tf2 = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf2 = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf2.write(b'not expected file')
     tf2.close()
     tf2_path = temp_path / Path(tf2.name).name
 
-    compressed_file = Path(temp_dir) / 'test.zip'
+    compressed_file = Path(tmp_path) / 'test.zip'
 
     with zipfile.ZipFile(compressed_file, mode='w') as zf:
         zf.write(tf1_path, arcname=tf1_path.name)
@@ -185,11 +210,12 @@ def test_cached_file_extract_zip(temp_dir):
     tf1_path.unlink()
     tf2_path.unlink()
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True, extract_to=temp_dir,
+    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
+                                                       extract_to=str(tmp_path),
                                                        expected_mode=models.ExpectedMode.explicit)
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(tf1_path), cached_file=cached_file)
 
-    cached_file.uncompress()
+    cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
     assert not Path(tf2.name).exists()
@@ -201,7 +227,7 @@ def test_cached_file_extract_zip(temp_dir):
     Path(expected_file.path).unlink()
 
     cached_file.expected_mode = models.ExpectedMode.auto
-    cached_file.uncompress()
+    cached_file.preprocess()
 
     assert len(cached_file.expected_files) == 2
 
@@ -218,21 +244,21 @@ def test_cached_file_extract_zip(temp_dir):
     assert found1 and found2
 
 
-def test_cached_file_extract_tar(session, temp_dir):
+def test_cached_file_extract_tar(session, tmp_path):
 
-    temp_path = Path(temp_dir)
+    temp_path = Path(tmp_path)
 
-    tf1 = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf1 = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf1.write(b'expected file')
     tf1.close()
     tf1_path = temp_path / Path(tf1.name).name
 
-    tf2 = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf2 = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf2.write(b'not expected file')
     tf2.close()
     tf2_path = temp_path / Path(tf2.name).name
 
-    compressed_file = Path(temp_dir) / 'test.tar.gz'
+    compressed_file = Path(tmp_path) / 'test.tar.gz'
 
     with tarfile.open(compressed_file, mode='w:gz') as cf:
         cf.add(tf1_path, arcname=tf1_path.name)
@@ -241,11 +267,12 @@ def test_cached_file_extract_tar(session, temp_dir):
     tf1_path.unlink()
     tf2_path.unlink()
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True, extract_to=temp_dir,
+    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
+                                                       extract_to=str(tmp_path),
                                                        expected_mode=models.ExpectedMode.explicit)
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(tf1_path), cached_file=cached_file)
 
-    cached_file.uncompress()
+    cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
     assert not Path(tf2.name).exists()
@@ -257,7 +284,7 @@ def test_cached_file_extract_tar(session, temp_dir):
     Path(expected_file.path).unlink()
 
     cached_file.expected_mode = models.ExpectedMode.auto
-    cached_file.uncompress()
+    cached_file.preprocess()
 
     assert len(cached_file.expected_files) == 2
 

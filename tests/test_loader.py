@@ -27,9 +27,9 @@ def test_base_loader(data_frame):
         loader.finalize()
 
 
-def test_hash_loader(data_frame, temp_dir):
+def test_hash_loader(data_frame, tmp_path):
 
-    tf = NamedTemporaryFile(dir=temp_dir, delete=False)
+    tf = NamedTemporaryFile(dir=tmp_path, delete=False)
     tf.close()
 
     loader = HashLoader(tf.name)
@@ -41,6 +41,8 @@ def test_hash_loader(data_frame, temp_dir):
     with open(tf.name, 'r') as f:
         data = f.read().strip()
         assert expected_hash == data
+
+    loader.finalize()
 
 
 def test_data_frame_loader_csv(data_frame, tmp_path):
@@ -84,6 +86,27 @@ def test_data_frame_loader_parquet(data_frame, tmp_path):
     df_out = pd.read_parquet(parquet_file)
 
     assert df_out.equals(data_frame)
+
+
+def test_data_frame_loader_unknown():
+
+    with pytest.raises(ValueError):
+        loader = DataFrameLoader('some-file.unknown')
+
+
+def test_database_loader_init():
+
+    loader = DatabaseLoader('test_table', index=False)
+
+    assert loader.schema is None
+    assert loader.kwargs == {'index': False}
+    assert not loader.clean
+
+    loader = DatabaseLoader('test_table', schema='test_schema')
+
+    assert loader.schema == 'test_schema'
+    assert loader.kwargs == {}
+    assert not loader.clean
 
 
 def test_database_loader(data_frame):
