@@ -16,17 +16,27 @@ kETL
 
 
 
-komprehensive ETL
+konfigurable ETL
 
 
 * Free software: MIT license
 * Documentation: https://ketl.readthedocs.io.
 
 
+Introduction
+------------
+
+kETL is a konfigurable ETL library. Its job is to simplify the process of extracting, transforming,
+and loading files from the internet. The goal of kETL is not to be all things to all use cases,
+but rather to maintain a simple but useful set of features intended to get your data from wherever
+it lives to some place where you can do stuff with it.
+
 Features
 --------
 
-* TODO
+* Strict separation of extraction, transformation, and loading concerns
+* Easily configurable for most use cases; derive subclasses to define your own behaviors
+* Simple API to use with or without pipelining logic
 
 Credits
 -------

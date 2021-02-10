@@ -31,7 +31,7 @@ Base = declarative_base()
 
 class API(Base, RestMixin):
 
-    __tablename__ = 'api_config'
+    __tablename__ = 'ketl_api_config'
 
     id = Column(Integer, primary_key=True)
     name = Column(String, index=True, unique=True)
@@ -88,14 +88,14 @@ class CachedFile(Base):
 
     BLOCK_SIZE = 65536
 
-    __tablename__ = 'cached_file'
+    __tablename__ = 'ketl_cached_file'
 
     __table_args__ = (
         UniqueConstraint('source_id', 'url', 'path'),
     )
 
     id = Column(Integer, primary_key=True)
-    source_id = Column(Integer, ForeignKey('source.id', ondelete='CASCADE'))
+    source_id = Column(Integer, ForeignKey('ketl_source.id', ondelete='CASCADE'))
     source = relationship('Source', back_populates='source_files')
     expected_files = relationship('ExpectedFile', back_populates='cached_file')
     url = Column(String, index=True)
@@ -200,17 +200,17 @@ class CachedFile(Base):
 
 class Creds(Base):
 
-    __tablename__ = 'creds'
+    __tablename__ = 'ketl_creds'
 
     id = Column(Integer, primary_key=True)
-    api_config_id = Column(Integer, ForeignKey('api_config.id', ondelete='CASCADE'))
+    api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
     api_config = relationship('API', back_populates='creds')
     creds_details = Column(JSON)
 
 
 class Source(Base):
 
-    __tablename__ = 'source'
+    __tablename__ = 'ketl_source'
 
     __table_args__ = (
         UniqueConstraint('base_url', 'data_dir', 'api_config_id'),
@@ -220,7 +220,7 @@ class Source(Base):
     source_type = Column(String, index=True)
     base_url = Column(String, index=True)
     data_dir = Column(String, index=True)
-    api_config_id = Column(Integer, ForeignKey('api_config.id', ondelete='CASCADE'))
+    api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
     api_config = relationship('API', back_populates='sources', enable_typechecks=False)
     source_files = relationship('CachedFile', back_populates='source',
                                 cascade='all, delete-orphan',
@@ -249,7 +249,7 @@ class Source(Base):
 
 class ExpectedFile(Base):
 
-    __tablename__ = 'expected_file'
+    __tablename__ = 'ketl_expected_file'
 
     __table_args__ = (
         UniqueConstraint('path', 'cached_file_id'),
@@ -261,7 +261,7 @@ class ExpectedFile(Base):
     path = Column(String, index=True)
     hash = Column(String)
     size = Column(Integer, index=True)
-    cached_file_id = Column(Integer, ForeignKey('cached_file.id', ondelete='CASCADE'))
+    cached_file_id = Column(Integer, ForeignKey('ketl_cached_file.id', ondelete='CASCADE'))
     cached_file = relationship('CachedFile', back_populates='expected_files')
     processed = Column(Boolean, default=False, index=True)
     last_processed = Column(DateTime, index=True)

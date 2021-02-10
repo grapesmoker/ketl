@@ -19,6 +19,7 @@ from ketl.utils.file_utils import file_hash
 
 @dataclass
 class SourceTargetPair:
+    """ A class for handling the correspondence between a cached file and its destination. """
 
     source: Union[str, CachedFile]
     target: Union[str, Path]
@@ -33,7 +34,11 @@ class BaseExtractor:
 
 
 class DefaultExtractor(BaseExtractor):
-
+    """
+    The default extractor can fetch files from an FTP server or any location that
+    is openable via smart_open. It is up to the user to provide any credentials
+    that are required to access the desired resources.
+    """
     BLOCK_SIZE = 16384
 
     def __init__(self, api_config: Union[API, int, str], show_progress=False):
@@ -59,7 +64,10 @@ class DefaultExtractor(BaseExtractor):
                 self.headers[self.auth_token['header']] = self.auth_token['token']
 
     @property
-    def source_target_list(self):
+    def source_target_list(self) -> List[SourceTargetPair]:
+        """
+        Build a list of correspndences between cached files and their destinations.
+        """
 
         return [SourceTargetPair(
             source=source_file,

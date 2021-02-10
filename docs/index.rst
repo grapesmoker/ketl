@@ -8,6 +8,7 @@ Welcome to kETL's documentation!
    readme
    installation
    usage
+   faq
    modules
    contributing
    authors
