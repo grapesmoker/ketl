@@ -23,7 +23,7 @@ def session(engine):
     return get_session()
 
 
-@pytest.yield_fixture(scope='function', autouse=True)
+@pytest.fixture(scope='function', autouse=True)
 def tables(engine):
     for m in metadata:
         m.create_all(engine)

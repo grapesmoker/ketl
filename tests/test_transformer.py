@@ -2,8 +2,8 @@ import pytest
 import io
 import pandas as pd
 import json
-from unittest import mock
 
+from inflection import underscore
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -136,14 +136,14 @@ def test_build_data_frame_concat():
 def test_json_transformer_init():
 
     kwargs = {'transpose': True, 'concat_on_axis': True, 'record_path': ['path1', 'path2'],
-              'snake_case_columns': True, 'columns': ['col1', 'col2']}
+              'rename': underscore, 'columns': ['col1', 'col2']}
     transformer = JsonTableTransformer(**kwargs)
 
     assert transformer.transpose
     assert transformer.concat_on_axis
     assert transformer.record_path == ['path1', 'path2']
-    assert transformer.snake_case_columns
     assert transformer.columns == ['col1', 'col2']
+    assert transformer.rename is not None
 
 
 def test_json_transformer_extract_data(tmp_path):
@@ -233,7 +233,7 @@ def test_json_transformer_snakecase_and_filter(tmp_path):
     tf.write(json.dumps(data).encode('utf-8'))
     tf.close()
 
-    transformer = JsonTableTransformer(snake_case_columns=True, columns=['my_field1'])
+    transformer = JsonTableTransformer(columns=['my_field1'], rename=underscore)
 
     for df in transformer.transform([tf.name]):
         assert df_expected.equals(df)

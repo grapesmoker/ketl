@@ -10,9 +10,9 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = ['Click>=7.0', 'furl==2.1.0', 'smart_open==4.0.0',
-                'marshmallow==3.9.1', 'tqdm==4.55.1', 'pyarrow==2.0.0',
-                'requests==2.25.1', 'sqlalchemy==1.3.20']
+requirements = ['Click>=7.0', 'furl~=2.1.0', 'smart_open~=4.1.2',
+                'marshmallow~=3.10.0', 'tqdm==4.55.1', 'pyarrow~=3.0.0',
+                'requests~=2.25.1', 'sqlalchemy~=1.3.23', 'pandas~=1.2.2']
 
 setup_requirements = ['pytest-runner', ]
 
@@ -33,10 +33,10 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
     ],
-    description="komprehensive ETL",
+    description="konfigurable ETL",
     entry_points={
         'console_scripts': [
-            'ketl=ketl.cli:main',
+            'ketl=ketl.cli:ketl',
         ],
     },
     install_requires=requirements,

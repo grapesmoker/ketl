@@ -29,12 +29,14 @@ class BaseTransformer:
     COLUMN_NAMES = None
 
     def __init__(self, transpose: bool = False, concat_on_axis: Union[int, str] = None,
-                 columns: List[Union[str, int]] = None, skip_errors: bool = False, **kwargs):
+                 columns: List[Union[str, int]] = None, skip_errors: bool = False,
+                 rename: Union[Callable, Dict[str, str]] = None, **kwargs):
 
         self.transpose = transpose
         self.concat_on_axis = concat_on_axis
         self.columns = columns
         self.skip_errors = skip_errors
+        self.rename = rename
 
         self.passed_kwargs = kwargs
 
@@ -52,9 +54,11 @@ class BaseTransformer:
 class DelimitedTableTransformer(BaseTransformer):
 
     def __init__(self, transpose: bool = False, concat_on_axis: Union[str, int] = None,
-                 columns: List[Union[str, int]] = None, skip_errors: bool = False, **kwargs):
+                 columns: List[Union[str, int]] = None, skip_errors: bool = False,
+                 rename: Union[Callable, Dict[str, str]] = None, **kwargs):
 
-        super(DelimitedTableTransformer, self).__init__(transpose, concat_on_axis, columns, skip_errors, **kwargs)
+        super(DelimitedTableTransformer, self).__init__(
+            transpose, concat_on_axis, columns, skip_errors, rename, **kwargs)
 
         self.reader_kwargs = {
             'comment': None,
@@ -97,17 +101,17 @@ class DelimitedTableTransformer(BaseTransformer):
 class JsonTableTransformer(BaseTransformer):
 
     def __init__(self, record_path: Union[List[str], str] = None,
-                 snake_case_columns: bool = False,
                  transpose: bool = False,
                  concat_on_axis: Union[str, int] = None,
                  columns: List[Union[str, int]] = None,
                  skip_errors: bool = False,
+                 rename: Union[Callable, Dict[str, str]] = None,
                  **kwargs):
 
-        super(JsonTableTransformer, self).__init__(transpose, concat_on_axis, columns, skip_errors, **kwargs)
+        super(JsonTableTransformer, self).__init__(
+            transpose, concat_on_axis, columns, skip_errors, rename, **kwargs)
 
         self.record_path = record_path
-        self.snake_case_columns = snake_case_columns
 
         self.reader_kwargs = {
             'orient': None,
@@ -129,7 +133,7 @@ class JsonTableTransformer(BaseTransformer):
 
     @staticmethod
     def _extract_data(filename: Union[Path, str], record_path: Union[List[str], str],
-                      serialize:bool = True) -> Union[dict, list, str]:
+                      serialize: bool = True) -> Union[dict, list, str]:
 
         with open(filename, 'r') as f:
             data: dict = json.load(f)
@@ -178,8 +182,8 @@ class JsonTableTransformer(BaseTransformer):
 
         for df in self._build_data_frame(source_files):
             if not df.empty:
-                if self.snake_case_columns:
-                    df = df.rename(inflection.underscore, axis='columns')
+                if self.rename:
+                    df = df.rename(self.rename, axis='columns')
                 if self.columns:
                     df = df[self.columns]
 
