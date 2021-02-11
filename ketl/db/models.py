@@ -145,6 +145,11 @@ class CachedFile(Base):
         return Path(self.source.data_dir).resolve() / self.path
 
     @property
+    def full_url(self) -> str:
+
+        return f'{self.source.base_url}/{self.url}'
+
+    @property
     def file_hash(self):
         """
         Return the hash of the file.

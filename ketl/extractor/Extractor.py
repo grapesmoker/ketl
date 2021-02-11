@@ -86,15 +86,22 @@ class DefaultExtractor(BaseExtractor):
                                      for st_pair in self.source_target_list]))
 
         new_expected_files: List[ExpectedFile] = []
+        updated_expected_files: List[dict] = []
 
         session = get_session()
+        current_files = {(ef.path, ef.cached_file_id) for ef in self.api.expected_files}
 
         for source_file in results:
+            print(f'processing {source_file.path}')
             ef = source_file.preprocess()  # safe to call on non-archives since nothing will happen
             if ef:
-                new_expected_files.append(ef)
+                if (ef.path, ef.cached_file_id) not in current_files:
+                    new_expected_files.append(ef)
+                else:
+                    updated_expected_files.append({'id': ef.id, 'path': ef.path})
 
         session.bulk_save_objects(new_expected_files)
+        session.bulk_update_mappings(ExpectedFile, updated_expected_files)
 
         # TODO: this is a bit awkward because all the new files are saved to the db
         # TODO: but what we want to do is to return all the expected files from the
@@ -102,6 +109,7 @@ class DefaultExtractor(BaseExtractor):
         # TODO: we actually got
 
         expected_files = []
+
         for source_file in results:
             expected_files.extend([Path(ef.path) for ef in source_file.expected_files])
 
@@ -111,7 +119,7 @@ class DefaultExtractor(BaseExtractor):
     def _fetch_ftp_file(cls, source_file: CachedFile, target_file: Path,
                         show_progress=False, force_download=False) -> bool:
 
-        parsed_url = up.urlparse(source_file.url)
+        parsed_url = up.urlparse(source_file.full_url)
         ftp = FTP(parsed_url.hostname)
         ftp.login()
         total_size = ftp.size(parsed_url.path)
@@ -138,7 +146,7 @@ class DefaultExtractor(BaseExtractor):
                             show_progress=False, force_download=False) -> bool:
 
         transport_params = {}
-        url = furl(source_file.url)
+        url = furl(source_file.full_url)
         if headers:
             transport_params['headers'] = headers
         if auth:
@@ -196,7 +204,7 @@ class DefaultExtractor(BaseExtractor):
                  show_progress=False, force_download=False) -> Optional[CachedFile]:
 
         try:
-            parsed_url = up.urlparse(f'{source_file.source.base_url}/{source_file.url}')
+            parsed_url = up.urlparse(source_file.full_url)
             if parsed_url.scheme == 'ftp':
                 result = self._fetch_ftp_file(source_file, target_file,
                                               show_progress=show_progress,
