@@ -171,7 +171,7 @@ class CachedFile(Base):
 
         return sha1()
 
-    def preprocess(self) -> Optional['ExpectedFile']:
+    def preprocess(self) -> Optional[dict]:
         """
         Preprocess the file, extracting and creating expected files as needed.
         :return: Optionally returns an expected file, if one was created directly from the
@@ -191,7 +191,7 @@ class CachedFile(Base):
                 self._extract_lzma(extract_dir)
             return None
         elif self.expected_mode == ExpectedMode.self:
-            return ExpectedFile(cached_file=self, path=str(Path(self.source.data_dir) / self.path))
+            return {'cached_file_id': self.id, 'path': str(Path(self.source.data_dir) / self.path)}
 
     def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path]):
         """
@@ -363,7 +363,7 @@ class ExpectedFile(Base):
     hash = Column(String)
     size = Column(BigInteger, index=True)
     cached_file_id = Column(Integer, ForeignKey('ketl_cached_file.id', ondelete='CASCADE'))
-    cached_file = relationship('CachedFile', back_populates='expected_files')
+    cached_file = relationship('CachedFile', back_populates='expected_files', lazy='joined')
     processed = Column(Boolean, default=False, index=True)
     file_type = Column(String, index=True)
     last_processed = Column(DateTime, index=True)

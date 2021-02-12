@@ -83,10 +83,10 @@ class DefaultExtractor(BaseExtractor):
     def extract(self) -> List[Path]:
 
         # self.api = get_session().query(API).filter(API.id == self.api.id).one()
-
+        print(f'processing API {self.api.name}')
         if self.skip_existing_files:
             candidates = [st_pair for st_pair in self.source_target_list
-                          if not Path(st_pair.source.path).exists()]
+                          if not st_pair.target.exists()]
         else:
             candidates = self.source_target_list
 
@@ -97,21 +97,22 @@ class DefaultExtractor(BaseExtractor):
         updated_expected_files: List[dict] = []
 
         session = get_session()
-        current_files = {(ef.path, ef.cached_file_id) for ef in self.api.expected_files}
+        current_files = {(ef.path, ef.cached_file_id): ef.id for ef in self.api.expected_files}
 
         for source_file in self.api.cached_files:
-            print(f'processing {source_file.path}')
+            # print(f'processing {source_file.path}')
             ef = source_file.preprocess()  # safe to call on non-archives since nothing will happen
             if ef:
-                if (ef.path, ef.cached_file_id) not in current_files:
+                if (key := (ef['path'], ef['cached_file_id'])) not in current_files:
                     new_expected_files.append(ef)
                 else:
-                    updated_expected_files.append({'id': ef.id, 'path': ef.path})
+                    updated_expected_files.append({'id': current_files[key], **ef})
 
-        session.bulk_save_objects(new_expected_files)
+        session.bulk_insert_mappings(ExpectedFile, new_expected_files)
         session.bulk_update_mappings(ExpectedFile, updated_expected_files)
+        session.commit()
 
-        return self.api.expected_files
+        return [Path(ef.path) for ef in self.api.expected_files]
 
     @classmethod
     def _fetch_ftp_file(cls, source_file: CachedFile, target_file: Path,
