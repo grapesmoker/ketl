@@ -7,7 +7,8 @@ Create Date: 2021-02-10 09:50:12.328439
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import sqlite
+
+from ketl.db.models import ExpectedMode
 
 # revision identifiers, used by Alembic.
 revision = '097a72ba1416'
@@ -58,7 +59,7 @@ def upgrade():
     sa.Column('refresh_interval', sa.Interval(), nullable=True),
     sa.Column('hash', sa.String(), nullable=True),
     sa.Column('cache_type', sa.String(), nullable=True),
-    sa.Column('size', sa.Integer(), nullable=True),
+    sa.Column('size', sa.BigInteger(), nullable=True),
     sa.Column('is_archive', sa.Boolean(), nullable=True),
     sa.Column('extract_to', sa.String(), nullable=True),
     sa.Column('expected_mode', sa.Enum('auto', 'explicit', 'self', name='expectedmode'), nullable=True),
@@ -79,10 +80,11 @@ def upgrade():
     op.create_index(op.f('ix_ketl_cached_file_url'), 'ketl_cached_file', ['url'], unique=False)
     op.create_table('ketl_expected_file',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('path', sa.String(), nullable=True),
+    sa.Column('path', sa.String(), nullable=False),
     sa.Column('hash', sa.String(), nullable=True),
-    sa.Column('size', sa.Integer(), nullable=True),
-    sa.Column('cached_file_id', sa.Integer(), nullable=True),
+    sa.Column('size', sa.BigInteger(), nullable=True),
+    sa.Column('archive_path', sa.String(), nullable=True),
+    sa.Column('cached_file_id', sa.Integer(), nullable=False),
     sa.Column('processed', sa.Boolean(), nullable=True),
     sa.Column('file_type', sa.String(), nullable=True),
     sa.Column('last_processed', sa.DateTime(), nullable=True),
@@ -93,6 +95,7 @@ def upgrade():
     op.create_index(op.f('ix_ketl_expected_file_file_type'), 'ketl_expected_file', ['file_type'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_last_processed'), 'ketl_expected_file', ['last_processed'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_path'), 'ketl_expected_file', ['path'], unique=False)
+    op.create_index(op.f('ix_ketl_expected_file_archive_path'), 'ketl_expected_file', ['archive_path'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_processed'), 'ketl_expected_file', ['processed'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_size'), 'ketl_expected_file', ['size'], unique=False)
     # ### end Alembic commands ###

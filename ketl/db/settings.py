@@ -27,5 +27,6 @@ def get_engine(conn_string=DB_DSN):
 
 def get_session() -> Session:
     # extremely primitive memoization to get a single global session object
-    Session = get_session.__dict__.setdefault('_sessionmaker', sessionmaker(bind=get_engine()))
-    return get_session.__dict__.setdefault('_session', Session())
+    s_maker = get_session.__dict__.setdefault('_sessionmaker', sessionmaker(bind=get_engine()))
+    return get_session.__dict__.setdefault('_session', s_maker())
+

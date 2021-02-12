@@ -16,7 +16,7 @@ from marshmallow import Schema
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column, Boolean, Integer, String, ForeignKey, DateTime,
-    JSON, Enum, Interval, UniqueConstraint
+    JSON, Enum, Interval, UniqueConstraint, BigInteger
 )
 from sqlalchemy.orm import relationship
 
@@ -97,12 +97,21 @@ class API(Base, RestMixin):
                 for cached_file in source.source_files
                 for expected_file in cached_file.expected_files]
 
+    @property
+    def cached_files(self) -> List['CachedFile']:
+        return [cached_file for source in self.sources
+                for cached_file in source.source_files]
+
 
 class ExpectedMode(enum.Enum):
 
     auto = 'auto'
     explicit = 'explicit'
     self = 'self'
+
+
+class InvalidConfigurationError(Exception):
+    """Exception indicating an invalid configuration."""
 
 
 class CachedFile(Base):
@@ -130,7 +139,7 @@ class CachedFile(Base):
     refresh_interval = Column(Interval, nullable=True, index=True, default=timedelta(days=7))
     hash = Column(String, nullable=True)
     cache_type = Column(String, index=True, nullable=True)
-    size = Column(Integer, index=True, nullable=True)
+    size = Column(BigInteger, index=True, nullable=True)
     is_archive = Column(Boolean, index=True, default=False)
     extract_to = Column(String, index=True, nullable=True)
     expected_mode = Column(Enum(ExpectedMode), index=True, default=ExpectedMode.explicit)
@@ -172,14 +181,14 @@ class CachedFile(Base):
 
         if self.is_archive:
             expected_paths: Set[Path] = {Path(file.path) for file in self.expected_files}
-            if tarfile.is_tarfile(self.path):
+            if tarfile.is_tarfile(self.full_path):
                 self._extract_tar(extract_dir, expected_paths)
-            elif zipfile.is_zipfile(self.path):
+            elif zipfile.is_zipfile(self.full_path):
                 self._extract_zip(extract_dir, expected_paths)
-            elif self.path.endswith('.gz'):
-                self._extract_gzip(extract_dir, expected_paths)
-            elif Path(self.path).suffix in ['.xz', '.lz', '.lzma']:
-                self._extract_lzma(extract_dir, expected_paths)
+            elif self.full_path.name.endswith('.gz'):
+                self._extract_gzip(extract_dir)
+            elif self.full_path.suffix in ['.xz', '.lz', '.lzma']:
+                self._extract_lzma(extract_dir)
             return None
         elif self.expected_mode == ExpectedMode.self:
             return ExpectedFile(cached_file=self, path=str(Path(self.source.data_dir) / self.path))
@@ -191,22 +200,17 @@ class CachedFile(Base):
         :param expected_paths: The list of expected paths that should be generated from the archive.
         :return: None
         """
-        tf = tarfile.open(self.path)
-        archived_paths = {Path(file) for file in tf.getnames()}
+        tf = tarfile.open(self.full_path)
         if self.expected_mode == ExpectedMode.auto:
+            archived_paths = {Path(file) for file in tf.getnames()}
             self._generate_expected_files(extract_dir, archived_paths, expected_paths)
             tf.extractall(path=extract_dir)
         elif self.expected_mode == ExpectedMode.explicit:
-            target_paths = set(map(lambda p: (extract_dir / p.name).resolve(), expected_paths))
-            for path in archived_paths:
-                if path.is_absolute() or str(path).startswith('..'):
-                    raise ValueError(f'Invalid path present in archive: {path}. '
-                                     f'Paths must not be absolute or begin with ..')
-                elif (extract_dir / path.name).resolve() in target_paths:
-                    target = extract_dir / path
-                    with open(target, 'wb') as target_file:
-                        with tf.extractfile(str(path)) as source_file:
-                            shutil.copyfileobj(source_file, target_file)
+            for file in self.expected_files:
+                target = extract_dir / file.path
+                with open(target, 'wb') as target_file:
+                    with tf.extractfile(file.archive_path) as source_file:
+                        shutil.copyfileobj(source_file, target_file)
 
     def _extract_zip(self, extract_dir: Path, expected_paths: Set[Path]):
         """
@@ -215,42 +219,57 @@ class CachedFile(Base):
         :param expected_paths: The list of expected paths that should be generated from the archive.
         :return: None
         """
-        zf = zipfile.ZipFile(self.path)
+        zf = zipfile.ZipFile(self.full_path)
         archived_paths = {Path(file) for file in zf.namelist()}
         if self.expected_mode == ExpectedMode.auto:
             self._generate_expected_files(extract_dir, archived_paths, expected_paths)
             zf.extractall(path=extract_dir)
         elif self.expected_mode == ExpectedMode.explicit:
-            target_paths = set(map(lambda p: (extract_dir / p.name).resolve(), expected_paths))
-            for path in archived_paths:
-                if (extract_dir / path.name).resolve() in target_paths:
-                    zf.extract(str(path), path=extract_dir)
+            for file in self.expected_files:
+                target = extract_dir / file.path
+                info = zf.getinfo(file.archive_path)
+                if not target.exists() or info.file_size != target.stat().st_size:
+                    zf.extract(file.archive_path, path=extract_dir)
+                    if (source := extract_dir / file.archive_path).resolve() != target.resolve():
+                        shutil.move(source, target)
 
-    def _extract_gzip(self, extract_dir: Path, expected_paths: Set[Path]):
+    def _determine_target(self, extract_dir: Path) -> Path:
+
+        if len(self.expected_files) > 1:
+            raise InvalidConfigurationError(f'More than 1 expected file configured for a gz archive: {self.path}')
+        if len(self.expected_files) == 0 and self.expected_mode == ExpectedMode.auto:
+            return extract_dir / Path(self.path).stem
+        elif len(self.expected_files) == 0 and not self.expected_mode == ExpectedMode.auto:
+            raise InvalidConfigurationError(f'Expected mode is set to {self.expected_mode} but '
+                                            f'no expected files supplied.')
+        elif len(self.expected_files) == 1 and self.expected_mode == ExpectedMode.explicit:
+            return extract_dir / self.expected_files[0].path
+        else:
+            raise InvalidConfigurationError('Something very bad has happened :(')
+
+    def _extract_gzip(self, extract_dir: Path) -> None:
         """
         Extracts a gz file into the target directory.
         :param extract_dir: The directory to which the archive is to be extracted.
-        :param expected_paths: The list of expected paths that should be generated from the archive.
         :return: None
         """
-        result_file = extract_dir / Path(self.path).stem
-        if result_file in expected_paths:
-            with open(result_file, 'wb') as target:
-                with gzip.open(self.path, 'r') as source:
-                    shutil.copyfileobj(source, target)
+        result_file = self._determine_target(extract_dir)
 
-    def _extract_lzma(self, extract_dir: Path, expected_paths: Set[Path]) -> None:
+        with open(result_file, 'wb') as target:
+            with gzip.open(self.full_path, 'r') as source:
+                shutil.copyfileobj(source, target)
+
+    def _extract_lzma(self, extract_dir: Path) -> None:
         """
         Extracts an lzma file into the target directory.
         :param extract_dir: The directory to which the archive is to be extracted.
-        :param expected_paths: The list of expected paths that should be generated from the archive.
         :return: None
         """
-        result_file = extract_dir / Path(self.path).stem
-        if result_file in expected_paths:
-            with open(result_file, 'wb') as target:
-                with lzma.open(self.path, 'r') as source:
-                    shutil.copyfileobj(source, target)
+        result_file = self._determine_target(extract_dir)
+
+        with open(result_file, 'wb') as target:
+            with lzma.open(self.full_path, 'r') as source:
+                shutil.copyfileobj(source, target)
 
     def _generate_expected_files(self, extract_dir: Path, archived_paths: Set[Path], expected_paths: Set[Path]) -> None:
         """
@@ -280,7 +299,7 @@ class Creds(Base):
 
     id = Column(Integer, primary_key=True)
     api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
-    api_config = relationship('API', back_populates='creds')
+    api_config = relationship('API', back_populates='creds', enable_typechecks=False)
     creds_details = Column(JSON)
 
 
@@ -340,8 +359,9 @@ class ExpectedFile(Base):
 
     id = Column(Integer, primary_key=True)
     path = Column(String, index=True)
+    archive_path = Column(String, index=True)
     hash = Column(String)
-    size = Column(Integer, index=True)
+    size = Column(BigInteger, index=True)
     cached_file_id = Column(Integer, ForeignKey('ketl_cached_file.id', ondelete='CASCADE'))
     cached_file = relationship('CachedFile', back_populates='expected_files')
     processed = Column(Boolean, default=False, index=True)

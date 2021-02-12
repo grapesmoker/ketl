@@ -4,9 +4,9 @@ from sqlalchemy.exc import IntegrityError
 from ketl.db.settings import get_session
 
 
-def get_or_create(model, **kwargs):
+def get_or_create(model, session=None, **kwargs):
 
-    session = get_session()
+    session = session or get_session()
     try:
         return session.query(model).filter_by(**kwargs).one(), False
     except NoResultFound:
@@ -18,4 +18,6 @@ def get_or_create(model, **kwargs):
         except IntegrityError:
             session.rollback()
             return session.query(model).filter_by(**kwargs).one(), False
-
+        except Exception as ex:
+            print(ex)
+            raise ex

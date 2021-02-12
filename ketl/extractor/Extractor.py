@@ -41,7 +41,7 @@ class DefaultExtractor(BaseExtractor):
     """
     BLOCK_SIZE = 16384
 
-    def __init__(self, api_config: Union[API, int, str], show_progress=False):
+    def __init__(self, api_config: Union[API, int, str], skip_exiting_files: bool = False, show_progress=False):
 
         if type(api_config) is int:
             self.api = get_session().query(API).filter(API.id == api_config).one()
@@ -52,6 +52,8 @@ class DefaultExtractor(BaseExtractor):
         self.headers = {}
         self.auth = None
         self.auth_token = None
+        self.skip_existing_files = skip_exiting_files
+        self.show_progress = show_progress
 
         if self.api.creds:
             details = self.api.creds.creds_details
@@ -80,10 +82,16 @@ class DefaultExtractor(BaseExtractor):
 
     def extract(self) -> List[Path]:
 
-        self.api = get_session().query(API).filter(API.id == self.api.id).one()
+        # self.api = get_session().query(API).filter(API.id == self.api.id).one()
 
-        results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=True)
-                                     for st_pair in self.source_target_list]))
+        if self.skip_existing_files:
+            candidates = [st_pair for st_pair in self.source_target_list
+                          if not Path(st_pair.source.path).exists()]
+        else:
+            candidates = self.source_target_list
+
+        results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
+                                     for st_pair in candidates]))
 
         new_expected_files: List[ExpectedFile] = []
         updated_expected_files: List[dict] = []
@@ -91,7 +99,7 @@ class DefaultExtractor(BaseExtractor):
         session = get_session()
         current_files = {(ef.path, ef.cached_file_id) for ef in self.api.expected_files}
 
-        for source_file in results:
+        for source_file in self.api.cached_files:
             print(f'processing {source_file.path}')
             ef = source_file.preprocess()  # safe to call on non-archives since nothing will happen
             if ef:
@@ -103,17 +111,7 @@ class DefaultExtractor(BaseExtractor):
         session.bulk_save_objects(new_expected_files)
         session.bulk_update_mappings(ExpectedFile, updated_expected_files)
 
-        # TODO: this is a bit awkward because all the new files are saved to the db
-        # TODO: but what we want to do is to return all the expected files from the
-        # TODO: cached file. but not for the whole api, just for the cached files
-        # TODO: we actually got
-
-        expected_files = []
-
-        for source_file in results:
-            expected_files.extend([Path(ef.path) for ef in source_file.expected_files])
-
-        return expected_files
+        return self.api.expected_files
 
     @classmethod
     def _fetch_ftp_file(cls, source_file: CachedFile, target_file: Path,
