@@ -18,6 +18,3 @@ def get_or_create(model, session=None, **kwargs):
         except IntegrityError:
             session.rollback()
             return session.query(model).filter_by(**kwargs).one(), False
-        except Exception as ex:
-            print(ex)
-            raise ex

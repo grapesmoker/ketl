@@ -18,6 +18,7 @@ from sqlalchemy import (
     Column, Boolean, Integer, String, ForeignKey, DateTime,
     JSON, Enum, Interval, UniqueConstraint, BigInteger
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from ketl.extractor.Rest import RestMixin
@@ -132,7 +133,7 @@ class CachedFile(Base):
     source = relationship('Source', back_populates='source_files')
     expected_files = relationship('ExpectedFile', back_populates='cached_file')
     url = Column(String, index=True)
-    url_params = Column(JSON)
+    url_params = Column(JSONB)
     path = Column(String, index=True)  # path relative to source
     last_download = Column(DateTime, nullable=True, index=True)
     last_update = Column(DateTime, nullable=True, index=True)
@@ -143,7 +144,7 @@ class CachedFile(Base):
     is_archive = Column(Boolean, index=True, default=False)
     extract_to = Column(String, index=True, nullable=True)
     expected_mode = Column(Enum(ExpectedMode), index=True, default=ExpectedMode.explicit)
-    meta = Column(JSON, nullable=True)
+    meta = Column(JSONB, nullable=True)
 
     @property
     def full_path(self) -> Path:
@@ -191,7 +192,7 @@ class CachedFile(Base):
                 self._extract_lzma(extract_dir)
             return None
         elif self.expected_mode == ExpectedMode.self:
-            return {'cached_file_id': self.id, 'path': str(Path(self.source.data_dir) / self.path)}
+            return {'cached_file_id': self.id, 'path': str(self.full_path)}
 
     def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path]):
         """
@@ -289,7 +290,7 @@ class CachedFile(Base):
 
 class Creds(Base):
     """
-    A simple class for keeping track of credentials. Details are stored in a JSON blob.
+    A simple class for keeping track of credentials. Details are stored in a JSONB blob.
 
     SECURITY WARNING: creds are currently stored unencrypted. Don't put anything in here
     that requires real security.
@@ -300,7 +301,7 @@ class Creds(Base):
     id = Column(Integer, primary_key=True)
     api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
     api_config = relationship('API', back_populates='creds', enable_typechecks=False)
-    creds_details = Column(JSON)
+    creds_details = Column(JSONB)
 
 
 class Source(Base):
@@ -320,6 +321,7 @@ class Source(Base):
     data_dir = Column(String, index=True)
     api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
     api_config = relationship('API', back_populates='sources', enable_typechecks=False)
+    meta = Column(JSONB, index=True)
     source_files = relationship('CachedFile', back_populates='source',
                                 cascade='all, delete-orphan',
                                 passive_deletes=True,
@@ -367,6 +369,7 @@ class ExpectedFile(Base):
     processed = Column(Boolean, default=False, index=True)
     file_type = Column(String, index=True)
     last_processed = Column(DateTime, index=True)
+    meta = Column(JSONB, index=True)
 
     @property
     def file_hash(self):
