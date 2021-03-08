@@ -1,17 +1,16 @@
-"""create ketl models
+"""test
 
-Revision ID: 097a72ba1416
+Revision ID: ef65c717d766
 Revises:
-Create Date: 2021-02-10 09:50:12.328439
+Create Date: 2021-02-18 11:20:13.238002
 
 """
 import sqlalchemy as sa
 from alembic import op
-from ketl.db.models import ExpectedMode
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '097a72ba1416'
+revision = 'ef65c717d766'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -31,7 +30,7 @@ def upgrade():
     op.create_table('ketl_creds',
                     sa.Column('id', sa.Integer(), nullable=False),
                     sa.Column('api_config_id', sa.Integer(), nullable=True),
-                    sa.Column('creds_details', JSONB(), nullable=True),
+                    sa.Column('creds_details', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
                     sa.ForeignKeyConstraint(['api_config_id'], ['ketl_api_config.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id')
                     )
@@ -41,20 +40,20 @@ def upgrade():
                     sa.Column('base_url', sa.String(), nullable=True),
                     sa.Column('data_dir', sa.String(), nullable=True),
                     sa.Column('api_config_id', sa.Integer(), nullable=True),
-                    sa.Column('meta', JSONB(), nullable=True),
+                    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
                     sa.ForeignKeyConstraint(['api_config_id'], ['ketl_api_config.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
                     sa.UniqueConstraint('base_url', 'data_dir', 'api_config_id')
                     )
     op.create_index(op.f('ix_ketl_source_base_url'), 'ketl_source', ['base_url'], unique=False)
     op.create_index(op.f('ix_ketl_source_data_dir'), 'ketl_source', ['data_dir'], unique=False)
+    op.create_index('ix_ketl_source_meta', 'ketl_source', ['meta'], unique=False, postgresql_using='gin')
     op.create_index(op.f('ix_ketl_source_source_type'), 'ketl_source', ['source_type'], unique=False)
-    op.create_index(op.f('ix_ketl_source_meta'), 'ketl_source', ['meta'], unique=False)
     op.create_table('ketl_cached_file',
                     sa.Column('id', sa.Integer(), nullable=False),
                     sa.Column('source_id', sa.Integer(), nullable=True),
                     sa.Column('url', sa.String(), nullable=True),
-                    sa.Column('url_params', JSONB(), nullable=True),
+                    sa.Column('url_params', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
                     sa.Column('path', sa.String(), nullable=True),
                     sa.Column('last_download', sa.DateTime(), nullable=True),
                     sa.Column('last_update', sa.DateTime(), nullable=True),
@@ -65,7 +64,7 @@ def upgrade():
                     sa.Column('is_archive', sa.Boolean(), nullable=True),
                     sa.Column('extract_to', sa.String(), nullable=True),
                     sa.Column('expected_mode', sa.Enum('auto', 'explicit', 'self', name='expectedmode'), nullable=True),
-                    sa.Column('meta', JSONB(), nullable=True),
+                    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
                     sa.ForeignKeyConstraint(['source_id'], ['ketl_source.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
                     sa.UniqueConstraint('source_id', 'url', 'path')
@@ -76,35 +75,35 @@ def upgrade():
     op.create_index(op.f('ix_ketl_cached_file_is_archive'), 'ketl_cached_file', ['is_archive'], unique=False)
     op.create_index(op.f('ix_ketl_cached_file_last_download'), 'ketl_cached_file', ['last_download'], unique=False)
     op.create_index(op.f('ix_ketl_cached_file_last_update'), 'ketl_cached_file', ['last_update'], unique=False)
+    op.create_index('ix_ketl_cached_file_meta', 'ketl_cached_file', ['meta'], unique=False, postgresql_using='gin')
     op.create_index(op.f('ix_ketl_cached_file_path'), 'ketl_cached_file', ['path'], unique=False)
     op.create_index(op.f('ix_ketl_cached_file_refresh_interval'), 'ketl_cached_file', ['refresh_interval'],
                     unique=False)
     op.create_index(op.f('ix_ketl_cached_file_size'), 'ketl_cached_file', ['size'], unique=False)
     op.create_index(op.f('ix_ketl_cached_file_url'), 'ketl_cached_file', ['url'], unique=False)
-    op.create_index(op.f('ix_ketl_cached_file_meta'), 'ketl_cached_file', ['meta'], unique=False)
     op.create_table('ketl_expected_file',
                     sa.Column('id', sa.Integer(), nullable=False),
-                    sa.Column('path', sa.String(), nullable=False),
+                    sa.Column('path', sa.String(), nullable=True),
+                    sa.Column('archive_path', sa.String(), nullable=True),
                     sa.Column('hash', sa.String(), nullable=True),
                     sa.Column('size', sa.BigInteger(), nullable=True),
-                    sa.Column('archive_path', sa.String(), nullable=True),
-                    sa.Column('cached_file_id', sa.Integer(), nullable=False),
+                    sa.Column('cached_file_id', sa.Integer(), nullable=True),
                     sa.Column('processed', sa.Boolean(), nullable=True),
                     sa.Column('file_type', sa.String(), nullable=True),
                     sa.Column('last_processed', sa.DateTime(), nullable=True),
-                    sa.Column('meta', JSONB(), nullable=True),
+                    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
                     sa.ForeignKeyConstraint(['cached_file_id'], ['ketl_cached_file.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
                     sa.UniqueConstraint('path', 'cached_file_id')
                     )
+    op.create_index(op.f('ix_ketl_expected_file_archive_path'), 'ketl_expected_file', ['archive_path'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_file_type'), 'ketl_expected_file', ['file_type'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_last_processed'), 'ketl_expected_file', ['last_processed'],
                     unique=False)
+    op.create_index('ix_ketl_expected_file_meta', 'ketl_expected_file', ['meta'], unique=False, postgresql_using='gin')
     op.create_index(op.f('ix_ketl_expected_file_path'), 'ketl_expected_file', ['path'], unique=False)
-    op.create_index(op.f('ix_ketl_expected_file_archive_path'), 'ketl_expected_file', ['archive_path'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_processed'), 'ketl_expected_file', ['processed'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_size'), 'ketl_expected_file', ['size'], unique=False)
-    op.create_index(op.f('ix_ketl_expected_meta'), 'ketl_expected_file', ['meta'], unique=False)
     # ### end Alembic commands ###
 
 
@@ -113,26 +112,27 @@ def downgrade():
     op.drop_index(op.f('ix_ketl_expected_file_size'), table_name='ketl_expected_file')
     op.drop_index(op.f('ix_ketl_expected_file_processed'), table_name='ketl_expected_file')
     op.drop_index(op.f('ix_ketl_expected_file_path'), table_name='ketl_expected_file')
+    op.drop_index('ix_ketl_expected_file_meta', table_name='ketl_expected_file')
     op.drop_index(op.f('ix_ketl_expected_file_last_processed'), table_name='ketl_expected_file')
     op.drop_index(op.f('ix_ketl_expected_file_file_type'), table_name='ketl_expected_file')
-    op.drop_index(op.f('ix_ketl_expected_file_meta'), table_name='ketl_expected_file')
+    op.drop_index(op.f('ix_ketl_expected_file_archive_path'), table_name='ketl_expected_file')
     op.drop_table('ketl_expected_file')
     op.drop_index(op.f('ix_ketl_cached_file_url'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_size'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_refresh_interval'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_path'), table_name='ketl_cached_file')
+    op.drop_index('ix_ketl_cached_file_meta', table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_last_update'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_last_download'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_is_archive'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_extract_to'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_expected_mode'), table_name='ketl_cached_file')
     op.drop_index(op.f('ix_ketl_cached_file_cache_type'), table_name='ketl_cached_file')
-    op.drop_index(op.f('ix_ketl_cached_file_cache_meta'), table_name='ketl_cached_file')
     op.drop_table('ketl_cached_file')
     op.drop_index(op.f('ix_ketl_source_source_type'), table_name='ketl_source')
+    op.drop_index('ix_ketl_source_meta', table_name='ketl_source')
     op.drop_index(op.f('ix_ketl_source_data_dir'), table_name='ketl_source')
     op.drop_index(op.f('ix_ketl_source_base_url'), table_name='ketl_source')
-    op.drop_index(op.f('ix_ketl_source_meta'), table_name='ketl_source')
     op.drop_table('ketl_source')
     op.drop_table('ketl_creds')
     op.drop_index(op.f('ix_ketl_api_config_name'), table_name='ketl_api_config')

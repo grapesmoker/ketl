@@ -55,10 +55,10 @@ class ETLPipeline:
         for op in self.fanout:
             if isinstance(op, BaseExtractor):
                 result = extraction_results[op]
-                transformers = self.fanout[op]
+                transformers = self.fanout.get(op, [])
                 # TODO: parallelize this using joblib or something like that
                 for transformer in transformers:
-                    loaders = self.fanout[transformer]
+                    loaders = self.fanout.get(transformer, [])
                     for df in transformer.transform(result):
                         for loader in loaders:  # type: BaseLoader
                             loader.load(df)

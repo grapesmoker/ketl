@@ -82,8 +82,6 @@ class DefaultExtractor(BaseExtractor):
 
     def extract(self) -> List[Path]:
 
-        # self.api = get_session().query(API).filter(API.id == self.api.id).one()
-        print(f'processing API {self.api.name}')
         if self.skip_existing_files:
             candidates = [st_pair for st_pair in self.source_target_list
                           if not st_pair.target.exists()]
@@ -93,7 +91,7 @@ class DefaultExtractor(BaseExtractor):
         results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
                                      for st_pair in candidates]))
 
-        new_expected_files: List[ExpectedFile] = []
+        new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []
 
         session = get_session()

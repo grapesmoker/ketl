@@ -25,9 +25,6 @@ class BaseTransformer:
 
     # TODO: init should take the configuration kwargs
 
-    SCHEMA = None
-    COLUMN_NAMES = None
-
     def __init__(self, transpose: bool = False, concat_on_axis: Union[int, str] = None,
                  columns: List[Union[str, int]] = None, skip_errors: bool = False,
                  rename: Union[Callable, Dict[str, str]] = None, **kwargs):

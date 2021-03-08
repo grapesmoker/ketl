@@ -16,7 +16,7 @@ from marshmallow import Schema
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column, Boolean, Integer, String, ForeignKey, DateTime,
-    JSON, Enum, Interval, UniqueConstraint, BigInteger
+    JSON, Enum, Interval, UniqueConstraint, BigInteger, Index
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -126,6 +126,7 @@ class CachedFile(Base):
 
     __table_args__ = (
         UniqueConstraint('source_id', 'url', 'path'),
+        Index('ix_ketl_cached_file_meta', 'meta', postgresql_using='gin')
     )
 
     id = Column(Integer, primary_key=True)
@@ -313,6 +314,7 @@ class Source(Base):
 
     __table_args__ = (
         UniqueConstraint('base_url', 'data_dir', 'api_config_id'),
+        Index('ix_ketl_source_meta', 'meta', postgresql_using='gin')
     )
 
     id = Column(Integer, primary_key=True)
@@ -321,7 +323,7 @@ class Source(Base):
     data_dir = Column(String, index=True)
     api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
     api_config = relationship('API', back_populates='sources', enable_typechecks=False)
-    meta = Column(JSONB, index=True)
+    meta = Column(JSONB, nullable=True)
     source_files = relationship('CachedFile', back_populates='source',
                                 cascade='all, delete-orphan',
                                 passive_deletes=True,
@@ -355,6 +357,7 @@ class ExpectedFile(Base):
 
     __table_args__ = (
         UniqueConstraint('path', 'cached_file_id'),
+        Index('ix_ketl_expected_file_meta', 'meta', postgresql_using='gin')
     )
 
     BLOCK_SIZE = 65536
@@ -369,7 +372,7 @@ class ExpectedFile(Base):
     processed = Column(Boolean, default=False, index=True)
     file_type = Column(String, index=True)
     last_processed = Column(DateTime, index=True)
-    meta = Column(JSONB, index=True)
+    meta = Column(JSONB, nullable=True)
 
     @property
     def file_hash(self):

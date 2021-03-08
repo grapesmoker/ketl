@@ -2,11 +2,13 @@ from abc import abstractmethod
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
-from typing import Union
+from typing import Union, Any
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pickle
+
 from sqlalchemy import text
 
 from ketl.db.settings import get_engine
@@ -105,12 +107,11 @@ class DatabaseLoader(BaseLoader):
         self.engine = get_engine()
         self.schema = kwargs.pop('schema', None)
         self.kwargs = kwargs
+        super().__init__(destination)
 
         if self.schema:
-            super().__init__(f'{self.schema}.{destination}')
             self.delete_stmt = text(f'DELETE FROM {self.schema}.{self.destination}')
         else:
-            super().__init__(destination)
             self.delete_stmt = text(f'DELETE FROM {self.destination}')
 
         self.clean = False
@@ -126,6 +127,23 @@ class DatabaseLoader(BaseLoader):
             self.clean = True
 
         data_frame.to_sql(self.destination, self.engine, index=False, if_exists='append', schema=self.schema)
+
+    def finalize(self):
+
+        pass
+
+
+class PickleLoader(BaseLoader):
+
+    def __init__(self, pickler=None, *args, **kwargs):
+
+        super().__init__(*args, **kwargs)
+        self.pickler = pickler or pickle.dump
+
+    def load(self, obj: Any):
+
+        with open(self.destination, 'wb') as f:
+            self.pickler(obj, f)
 
     def finalize(self):
 
