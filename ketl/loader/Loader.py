@@ -2,7 +2,7 @@ from abc import abstractmethod
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
-from typing import Union, Any
+from typing import Union, Any, Callable
 
 import pandas as pd
 import pyarrow as pa
@@ -47,57 +47,58 @@ class HashLoader(BaseLoader):
         pass
 
 
-class DataFrameLoader(BaseLoader):
 
-    class FileFormat(Enum):
+class LocalFileLoader(BaseLoader):
 
-        PARQUET = 0
-        CSV = 1
+    def __init__(self, destination: Union[Path, str], naming_func: Callable = None, **kwargs):
 
-    def __init__(self, destination: Union[Path, str], **kwargs):
-        super().__init__(destination)
-        self.dest_path = Path(self.destination)
-
+        super().__init__(Path(destination))
+        self.naming_func = naming_func
         self.writer = None
-        self.file_format = None
         self.kwargs = kwargs
 
-        self.dest_path.unlink(missing_ok=True)
-
-        if self.dest_path.suffix.lower() == '.parquet':
-            self.file_format = self.FileFormat.PARQUET
-        elif self.dest_path.suffix.lower() in {'.csv', '.tsv'}:
-            self.file_format = self.FileFormat.CSV
+        if self.destination.is_dir():
+            files = self.destination.glob('*')
+            for file in files:
+                file.unlink()
         else:
-            raise ValueError(f'Unknown file type: {self.dest_path.suffix.lower()}')
+            self.destination.unlink()
 
-    def _load_csv(self, data_frame: pd.DataFrame, **kwargs):
+    def full_path(self, df: pd.DataFrame):
+        if not self.naming_func:
+            return self.destination
+        else:
+            return self.destination / self.naming_func(df)
 
-        with open(self.destination, 'a') as f:
-            data_frame.to_csv(f, **kwargs)
 
-    def _load_parquet(self, data_frame: pd.DataFrame, **kwargs):
-
-        table = pa.Table.from_pandas(data_frame)
-        if not self.writer:
-            self.writer = pq.ParquetWriter(self.destination, table.schema)
-        self.writer.write_table(table)
-
-    LOADER_MAP = {
-        FileFormat.PARQUET: _load_parquet,
-        FileFormat.CSV: _load_csv
-    }
+class ParquetLoader(LocalFileLoader):
 
     def load(self, data_frame: pd.DataFrame):
 
-        loader = self.LOADER_MAP[self.file_format]
-        # have to explicitly pass self here because we're not calling it via self._load_whatever
-        loader(self, data_frame, **self.kwargs)
+        try:
+            table = pa.Table.from_pandas(data_frame)
+            if not self.writer:
+                self.writer = pq.ParquetWriter(self.full_path(data_frame), table.schema)
+            else:
+                if not self.full_path(data_frame).exists():
+                    self.writer.close()
+                    self.writer = pq.ParquetWriter(self.full_path(data_frame), table.schema)
+            self.writer.write_table(table)
+        except Exception as ex:
+            print(f'Could not process {self.full_path(data_frame)}')
+            raise ex
 
     def finalize(self):
 
         if self.writer:
             self.writer.close()
+
+
+class DelimitedFileLoader(LocalFileLoader):
+
+    def load(self, data_frame: pd.DataFrame):
+        with open(self.full_path(data_frame), 'a') as f:
+            data_frame.to_csv(f, **self.kwargs)
 
 
 class DatabaseLoader(BaseLoader):
