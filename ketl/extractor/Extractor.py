@@ -7,6 +7,7 @@ from ftplib import FTP
 from functools import partial
 from pathlib import Path
 from typing import List, Union, Optional
+from urllib.parse import quote
 
 from furl import furl
 from smart_open import open as smart_open
@@ -88,8 +89,8 @@ class DefaultExtractor(BaseExtractor):
         else:
             candidates = self.source_target_list
 
-        results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
-                                     for st_pair in candidates]))
+        # results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
+        #                              for st_pair in candidates]))
 
         new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []
@@ -151,8 +152,19 @@ class DefaultExtractor(BaseExtractor):
         if source_file.url_params:
             url.add(source_file.url_params)
 
+        # tragic hack that is necessitated by s3's failure to properly conform to http spec
+        # c.f. https://forums.aws.amazon.com/thread.jspa?threadID=55746
+
+        url_to_fetch = url.url
+        if (url.scheme in {'s3', 's3a'} or url.host == 's3.amazonaws.com'):
+            url_to_fetch = f'{url.scheme}://{url.host}/{quote(str(url.path))}'
+            if url.fragmentstr != '':
+                url_to_fetch += quote(f'#{url.fragmentstr}')
+            if url.querystr != '':
+                url_to_fetch += f'&{url.querystr}'
+
         updated = False
-        with smart_open(url.url, 'rb', ignore_ext=True, transport_params=transport_params) as r:
+        with smart_open(url_to_fetch, 'rb', ignore_ext=True, transport_params=transport_params) as r:
             total_size = getattr(r, 'content_length', -1)
             if cls._requires_update(target_file, total_size, source_file.refresh_interval) or force_download:
                 target_file.parent.mkdir(exist_ok=True, parents=True)
