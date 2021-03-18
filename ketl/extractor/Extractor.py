@@ -102,7 +102,8 @@ class DefaultExtractor(BaseExtractor):
             # print(f'processing {source_file.path}')
             ef = source_file.preprocess()  # safe to call on non-archives since nothing will happen
             if ef:
-                if (key := (ef['path'], ef['cached_file_id'])) not in current_files:
+                key = (ef['path'], ef['cached_file_id'])
+                if key not in current_files:
                     new_expected_files.append(ef)
                 else:
                     updated_expected_files.append({'id': current_files[key], **ef})

@@ -232,7 +232,8 @@ class CachedFile(Base):
                 info = zf.getinfo(file.archive_path)
                 if not target.exists() or info.file_size != target.stat().st_size:
                     zf.extract(file.archive_path, path=extract_dir)
-                    if (source := extract_dir / file.archive_path).resolve() != target.resolve():
+                    source = (extract_dir / file.archive_path).resolve()
+                    if source != target.resolve():
                         shutil.move(source, target)
 
     def _determine_target(self, extract_dir: Path) -> Path:
