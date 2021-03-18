@@ -89,8 +89,8 @@ class DefaultExtractor(BaseExtractor):
         else:
             candidates = self.source_target_list
 
-        # results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
-        #                              for st_pair in candidates]))
+        results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
+                                     for st_pair in candidates]))
 
         new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []
