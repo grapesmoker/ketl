@@ -62,3 +62,4 @@ class ETLPipeline:
                     for df in transformer.transform(result):
                         for loader in loaders:  # type: BaseLoader
                             loader.load(df)
+                            loader.finalize()

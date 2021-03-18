@@ -58,7 +58,7 @@ class LocalFileLoader(BaseLoader):
         self.kwargs = kwargs
 
         # deletes compatible with pre-3.8 python
-        
+
         if self.destination.is_dir():
             files = self.destination.glob('*')
             for file in files:
