@@ -57,12 +57,16 @@ class LocalFileLoader(BaseLoader):
         self.writer = None
         self.kwargs = kwargs
 
+        # deletes compatible with pre-3.8 python
+        
         if self.destination.is_dir():
             files = self.destination.glob('*')
             for file in files:
-                file.unlink()
+                if file.exists():
+                    file.unlink()
         else:
-            self.destination.unlink()
+            if self.destination.exists():
+                self.destination.unlink()
 
     def full_path(self, df: pd.DataFrame):
         if not self.naming_func:
