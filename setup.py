@@ -13,7 +13,7 @@ with open('HISTORY.rst') as history_file:
 requirements = ['Click>=7.0', 'furl~=2.1.0', 'smart_open~=4.1.2',
                 'marshmallow~=3.10.0', 'tqdm==4.55.1', 'pyarrow~=3.0.0',
                 'requests~=2.25.1', 'sqlalchemy~=1.3.23', 'pandas~=1.2.2',
-                'inflection~=0.5.1']
+                'inflection~=0.5.1', 'more_itertools~=8.7.0']
 
 setup_requirements = ['pytest-runner', ]
 

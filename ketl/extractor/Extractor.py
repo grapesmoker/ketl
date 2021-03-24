@@ -14,18 +14,12 @@ from multiprocessing.pool import Pool
 from furl import furl
 from smart_open import open as smart_open
 from tqdm import tqdm
+from sqlalchemy.orm import defer
+from more_itertools import chunked
 
-from ketl.db.models import API, CachedFile, ExpectedFile
+from ketl.db.models import API, CachedFile, ExpectedFile, Source
 from ketl.db.settings import get_session
 from ketl.utils.file_utils import file_hash
-
-
-@dataclass
-class SourceTargetPair:
-    """ A class for handling the correspondence between a cached file and its destination. """
-
-    source: Union[str, CachedFile]
-    target: Union[str, Path]
 
 
 class BaseExtractor:
@@ -70,52 +64,51 @@ class DefaultExtractor(BaseExtractor):
             if self.auth_token:
                 self.headers[self.auth_token['header']] = self.auth_token['token']
 
-    @property
-    def source_target_list(self) -> List[SourceTargetPair]:
-        """
-        Build a list of correspndences between cached files and their destinations.
-        """
-
-        return [SourceTargetPair(
-            source=source_file,
-            target=Path(source.data_dir).resolve().
-                joinpath(
-                    source_file.path or furl(source_file.url).path.segments[-1].lstrip('/')
-                ))
-                for source in self.api.sources
-                for source_file in source.source_files]  # type: CachedFile
-
     def extract(self) -> List[Path]:
 
-        if self.skip_existing_files:
-            candidates = [st_pair for st_pair in self.source_target_list
-                          if not st_pair.target.exists()]
-        else:
-            candidates = self.source_target_list
+        q = get_session().query(
+            CachedFile
+        ).join(
+            Source, CachedFile.source_id == Source.id
+        ).filter(
+            Source.api_config_id == self.api.id
+        )
+        q.option(defer(CachedFile.meta))
 
-        if self.concurrency == 'sync':
-            results = list(
-                filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
-                              for st_pair in candidates])
-            )
-        elif self.concurrency == 'async':
-            raise NotImplementedError('Async downloads not yet implemented.')
-        elif self.concurrency == 'multiprocess':
-            with Pool() as pool:
-                args = [(st_pair.source, st_pair.target, self.show_progress)
-                        for st_pair in candidates]
-                pool.starmap_async(self.get_file, *args)
+        for batch in chunked(q.yield_per(10000), 10000):  # type: List[CachedFile]
+            if self.skip_existing_files:
+                batch = [cf for cf in batch if not cf.full_path.exists()]
 
+            if self.concurrency == 'sync':
+                results = list(
+                    filter(None, [self.get_file(cached_file, show_progress=self.show_progress)
+                                  for cached_file in batch])
+                )
+            elif self.concurrency == 'async':
+                raise NotImplementedError('Async downloads not yet implemented.')
+            elif self.concurrency == 'multiprocess':
+                with Pool() as pool:
+                    args = [(cached_file, self.show_progress)
+                            for cached_file in batch]
+                    pool.starmap_async(self.get_file, *args)
 
         new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []
 
         session = get_session()
-        current_files = {(ef.path, ef.cached_file_id): ef.id for ef in self.api.expected_files}
+
+        q = get_session().query(
+            ExpectedFile.path, ExpectedFile.cached_file_id
+        ).join(
+            Source, ExpectedFile.cached_file.source_id == Source.id
+        ).filter(
+            Source.api_config_id == self.api.id
+        )
+
+        current_files = {(ef.path, ef.cached_file_id): ef.id for ef in q.yield_per(10000)}
 
         for source_file in self.api.cached_files:
-            # print(f'processing {source_file.path}')
-            ef = source_file.preprocess()  # safe to call on non-archives since nothing will happen
+            ef = source_file.preprocess()
             if ef:
                 key = (ef['path'], ef['cached_file_id'])
                 if key not in current_files:
@@ -130,8 +123,7 @@ class DefaultExtractor(BaseExtractor):
         return [Path(ef.path) for ef in self.api.expected_files]
 
     @classmethod
-    def _fetch_ftp_file(cls, source_file: CachedFile, target_file: Path,
-                        show_progress=False, force_download=False) -> bool:
+    def _fetch_ftp_file(cls, source_file: CachedFile, show_progress=False, force_download=False) -> bool:
 
         parsed_url = up.urlparse(source_file.full_url)
         ftp = FTP(parsed_url.hostname)
@@ -139,6 +131,7 @@ class DefaultExtractor(BaseExtractor):
         total_size = ftp.size(parsed_url.path)
         updated = False
 
+        target_file = source_file.full_path
         if cls._requires_update(target_file, total_size, source_file.refresh_interval) or force_download:
 
             bar = tqdm(total=total_size, unit='B', unit_scale=True) if show_progress else None
@@ -156,11 +149,12 @@ class DefaultExtractor(BaseExtractor):
         return updated
 
     @classmethod
-    def _fetch_generic_file(cls, source_file: CachedFile, target_file: Path, headers=None, auth=None,
+    def _fetch_generic_file(cls, source_file: CachedFile, headers=None, auth=None,
                             show_progress=False, force_download=False) -> bool:
 
         transport_params = {}
         url = furl(source_file.full_url)
+        target_file = source_file.full_path
         if headers:
             transport_params['headers'] = headers
         if auth:
@@ -225,17 +219,16 @@ class DefaultExtractor(BaseExtractor):
         if bar:
             bar.close()
 
-    def get_file(self, source_file: CachedFile, target_file: Path,
-                 show_progress=False, force_download=False) -> Optional[CachedFile]:
+    def get_file(self, source_file: CachedFile, show_progress=False, force_download=False) -> Optional[CachedFile]:
 
         try:
             parsed_url = up.urlparse(source_file.full_url)
             if parsed_url.scheme == 'ftp':
-                result = self._fetch_ftp_file(source_file, target_file,
+                result = self._fetch_ftp_file(source_file,
                                               show_progress=show_progress,
                                               force_download=force_download)
             else:
-                result = self._fetch_generic_file(source_file, target_file,
+                result = self._fetch_generic_file(source_file,
                                                   headers=self.headers,
                                                   auth=self.auth,
                                                   show_progress=show_progress,
