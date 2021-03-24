@@ -41,7 +41,7 @@ class API(Base, RestMixin):
     id = Column(Integer, primary_key=True)
     name = Column(String, index=True, unique=True)
     description = Column(String, index=True)
-    sources = relationship('Source', back_populates='api_config', lazy='joined', enable_typechecks=False)
+    sources = relationship('Source', back_populates='api_config', enable_typechecks=False)
     creds = relationship('Creds', back_populates='api_config', lazy='joined', uselist=False)
     hash = Column(String)
 
