@@ -1,4 +1,5 @@
 import urllib.parse as up
+import asyncio
 
 from abc import abstractmethod
 from datetime import datetime, timedelta
@@ -8,6 +9,7 @@ from functools import partial
 from pathlib import Path
 from typing import List, Union, Optional
 from urllib.parse import quote
+from multiprocessing.pool import Pool
 
 from furl import furl
 from smart_open import open as smart_open
@@ -42,7 +44,8 @@ class DefaultExtractor(BaseExtractor):
     """
     BLOCK_SIZE = 16384
 
-    def __init__(self, api_config: Union[API, int, str], skip_exiting_files: bool = False, show_progress=False):
+    def __init__(self, api_config: Union[API, int, str], skip_exiting_files: bool = False,
+                 show_progress: bool = False, concurrency: str = 'sync'):
 
         if type(api_config) is int:
             self.api = get_session().query(API).filter(API.id == api_config).one()
@@ -55,6 +58,7 @@ class DefaultExtractor(BaseExtractor):
         self.auth_token = None
         self.skip_existing_files = skip_exiting_files
         self.show_progress = show_progress
+        self.concurrency = concurrency
 
         if self.api.creds:
             details = self.api.creds.creds_details
@@ -89,8 +93,19 @@ class DefaultExtractor(BaseExtractor):
         else:
             candidates = self.source_target_list
 
-        results = list(filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
-                                     for st_pair in candidates]))
+        if self.concurrency == 'sync':
+            results = list(
+                filter(None, [self.get_file(st_pair.source, st_pair.target, show_progress=self.show_progress)
+                              for st_pair in candidates])
+            )
+        elif self.concurrency == 'async':
+            raise NotImplementedError('Async downloads not yet implemented.')
+        elif self.concurrency == 'multiprocess':
+            with Pool() as pool:
+                args = [(st_pair.source, st_pair.target, self.show_progress)
+                        for st_pair in candidates]
+                pool.starmap_async(self.get_file, *args)
+
 
         new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []

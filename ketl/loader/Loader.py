@@ -74,6 +74,10 @@ class LocalFileLoader(BaseLoader):
         else:
             return self.destination / self.naming_func(df)
 
+    def finalize(self):
+
+        pass
+
 
 class ParquetLoader(LocalFileLoader):
 
