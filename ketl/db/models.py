@@ -121,7 +121,7 @@ class API(Base, RestMixin):
 
         return q.yield_per(10000)
 
-    def cached_files_on_disk(self, missing=False) -> List['CachedFile']:
+    def cached_files_on_disk(self, missing=False, limit_ids=None) -> Query:
 
         q: Query = get_session().query(
             Source.data_dir, CachedFile.path, CachedFile.id
@@ -131,9 +131,10 @@ class API(Base, RestMixin):
             Source.api_config_id == self.id
         )
 
-        result = []
-        for batch in chunked(q.yield_per(10000), 10000):
-            file_ids = [item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()]
+        for batch in chunked(q.yield_per(10000), 1000):
+            file_ids = {item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()}
+            if limit_ids:
+                file_ids = file_ids & limit_ids
             files = get_session().query(
                 CachedFile
             ).join(
@@ -145,15 +146,11 @@ class API(Base, RestMixin):
             )
 
             if missing:
-                result.extend(files.filter(
-                    ~CachedFile.id.in_(file_ids)
-                ).all())
-            else:
-                result.extend(files.filter(
-                    CachedFile.id.in_(file_ids)
-                ))
+                file_ids = {item[2] for item in batch} - file_ids
 
-        return result
+            yield files.filter(
+                CachedFile.id.in_(file_ids)
+            )
 
 
 class ExpectedMode(enum.Enum):

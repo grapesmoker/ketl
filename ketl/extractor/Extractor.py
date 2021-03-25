@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from ftplib import FTP
 from functools import partial
 from pathlib import Path
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Iterator
 from urllib.parse import quote
 from multiprocessing.pool import Pool
 
@@ -68,12 +68,18 @@ class DefaultExtractor(BaseExtractor):
 
         session = get_session()
 
-        q: Query = self.api.cached_files
-        q = q.options(defer(CachedFile.meta))
+        # depending on whether we are skipping files known to be on disk
+        # we produce an iterable that is either a list of queries that will
+        # give us the files that are missing, or a chunked version of a query
+        if self.skip_existing_files:
+            data_iterator: List[Query] = list(self.api.cached_files_on_disk(missing=True))
+        else:
+            data_iterator: Iterator[List[CachedFile]] = chunked(self.api.cached_files.options(
+                defer(CachedFile.meta)), 10000)
 
-        for batch in chunked(q.yield_per(10000), 10000):  # type: List[CachedFile]
-            if self.skip_existing_files:
-                batch = self.api.cached_files_on_disk(missing=True)
+        for batch in data_iterator:  # type: List[CachedFile]
+            if isinstance(batch, Query):
+                batch = batch.all()
 
             if self.concurrency == 'sync':
                 results = list(
