@@ -73,12 +73,14 @@ class DefaultExtractor(BaseExtractor):
         ).filter(
             Source.api_config_id == self.api.id
         )
-        q.option(defer(CachedFile.meta))
+        q.options(defer(CachedFile.meta))
 
         for batch in chunked(q.yield_per(10000), 10000):  # type: List[CachedFile]
             if self.skip_existing_files:
                 batch = [cf for cf in batch if not cf.full_path.exists()]
 
+            print('batch size:', len(batch))
+            
             if self.concurrency == 'sync':
                 results = list(
                     filter(None, [self.get_file(cached_file, show_progress=self.show_progress)
@@ -88,10 +90,14 @@ class DefaultExtractor(BaseExtractor):
                 raise NotImplementedError('Async downloads not yet implemented.')
             elif self.concurrency == 'multiprocess':
                 with Pool() as pool:
-                    args = [(cached_file, self.show_progress)
-                            for cached_file in batch]
-                    pool.starmap_async(self.get_file, *args)
+                    get_file_args = [(cached_file, self.show_progress)
+                                     for cached_file in batch]
+                    futures = pool.starmap_async(self.get_file, get_file_args)
+                    results = list(filter(None, futures.wait()))
+                pool.join()
 
+            get_session().bulk_update_mappings(CachedFile, results)
+            
         new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []
 
@@ -219,7 +225,7 @@ class DefaultExtractor(BaseExtractor):
         if bar:
             bar.close()
 
-    def get_file(self, source_file: CachedFile, show_progress=False, force_download=False) -> Optional[CachedFile]:
+    def get_file(self, source_file: CachedFile, show_progress=False, force_download=False) -> Optional[dict]:
 
         try:
             parsed_url = up.urlparse(source_file.full_url)
@@ -235,8 +241,12 @@ class DefaultExtractor(BaseExtractor):
                                                   force_download=force_download)
 
             if result:
-                self._update_file_cache(source_file, target_file)
-                return source_file
+                return {
+                    'id': source_file.id,
+                    'hash': file_hash(source_file.full_path).hexdigest(),
+                    'last_download': datetime.now(),
+                    'size': source_file.full_path.stat().st_size
+                }
             else:
                 return None
 
