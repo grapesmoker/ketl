@@ -18,8 +18,9 @@ from sqlalchemy import (
     Column, Boolean, Integer, String, ForeignKey, DateTime,
     JSON, Enum, Interval, UniqueConstraint, BigInteger, Index
 )
+from more_itertools import chunked
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, joinedload, Query
 
 from ketl.extractor.Rest import RestMixin
 from ketl.utils.file_utils import file_hash
@@ -89,19 +90,70 @@ class API(Base, RestMixin):
         return instance
 
     @property
-    def expected_files(self) -> List['ExpectedFile']:
+    def expected_files(self) -> Query:
         """
         Retrieve all the expected files under this API.
         :return: A list of expected files.
         """
-        return [expected_file for source in self.sources
-                for cached_file in source.source_files
-                for expected_file in cached_file.expected_files]
+
+        q = get_session().query(
+            ExpectedFile
+        ).join(
+            CachedFile, ExpectedFile.cached_file_id == CachedFile.id
+        ).join(
+            Source, CachedFile.source_id == Source.id
+        ).filter(
+            Source.api_config_id == self.id
+        )
+
+        return q.yield_per(10000)
 
     @property
-    def cached_files(self) -> List['CachedFile']:
-        return [cached_file for source in self.sources
-                for cached_file in source.source_files]
+    def cached_files(self) -> Query:
+
+        q: Query = get_session().query(
+            CachedFile
+        ).join(
+            Source, CachedFile.source_id == Source.id
+        ).filter(
+            Source.api_config_id == self.id
+        )
+
+        return q.yield_per(10000)
+
+    def cached_files_on_disk(self, missing=False) -> List['CachedFile']:
+
+        q: Query = get_session().query(
+            Source.data_dir, CachedFile.path, CachedFile.id
+        ).join(
+            Source, CachedFile.source_id == Source.id
+        ).filter(
+            Source.api_config_id == self.id
+        )
+
+        result = []
+        for batch in chunked(q.yield_per(10000), 10000):
+            file_ids = [item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()]
+            files = get_session().query(
+                CachedFile
+            ).join(
+                Source, CachedFile.source_id == Source.id
+            ).filter(
+                Source.api_config_id == self.id
+            ).options(
+                joinedload(CachedFile.source, innerjoin=True)
+            )
+
+            if missing:
+                result.extend(files.filter(
+                    ~CachedFile.id.in_(file_ids)
+                ).all())
+            else:
+                result.extend(files.filter(
+                    CachedFile.id.in_(file_ids)
+                ))
+
+        return result
 
 
 class ExpectedMode(enum.Enum):

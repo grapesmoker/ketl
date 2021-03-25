@@ -14,7 +14,7 @@ from multiprocessing.pool import Pool
 from furl import furl
 from smart_open import open as smart_open
 from tqdm import tqdm
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import defer, Query
 from more_itertools import chunked
 
 from ketl.db.models import API, CachedFile, ExpectedFile, Source
@@ -66,21 +66,15 @@ class DefaultExtractor(BaseExtractor):
 
     def extract(self) -> List[Path]:
 
-        q = get_session().query(
-            CachedFile
-        ).join(
-            Source, CachedFile.source_id == Source.id
-        ).filter(
-            Source.api_config_id == self.api.id
-        )
-        q.options(defer(CachedFile.meta))
+        session = get_session()
+
+        q: Query = self.api.cached_files
+        q = q.options(defer(CachedFile.meta))
 
         for batch in chunked(q.yield_per(10000), 10000):  # type: List[CachedFile]
             if self.skip_existing_files:
-                batch = [cf for cf in batch if not cf.full_path.exists()]
+                batch = self.api.cached_files_on_disk(missing=True)
 
-            print('batch size:', len(batch))
-            
             if self.concurrency == 'sync':
                 results = list(
                     filter(None, [self.get_file(cached_file, show_progress=self.show_progress)
@@ -89,29 +83,33 @@ class DefaultExtractor(BaseExtractor):
             elif self.concurrency == 'async':
                 raise NotImplementedError('Async downloads not yet implemented.')
             elif self.concurrency == 'multiprocess':
-                with Pool() as pool:
-                    get_file_args = [(cached_file, self.show_progress)
-                                     for cached_file in batch]
-                    futures = pool.starmap_async(self.get_file, get_file_args)
-                    results = list(filter(None, futures.wait()))
+                get_file_args = [(cached_file, self.show_progress)
+                                 for cached_file in batch]
+                if get_file_args:
+                    with Pool() as pool:
+                        futures = pool.starmap_async(self.get_file, get_file_args)
+                        results = futures.get()
+                        if results:
+                            results = list(filter(None, results))
                 pool.join()
 
-            get_session().bulk_update_mappings(CachedFile, results)
-            
+            session.bulk_update_mappings(CachedFile, results)
+            session.commit()
+
         new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []
 
-        session = get_session()
-
-        q = get_session().query(
-            ExpectedFile.path, ExpectedFile.cached_file_id
+        q: Query = session.query(
+            ExpectedFile.path, ExpectedFile.cached_file_id, ExpectedFile.id
         ).join(
-            Source, ExpectedFile.cached_file.source_id == Source.id
+            CachedFile, ExpectedFile.cached_file_id == CachedFile.id
+        ).join(
+            Source, CachedFile.source_id == Source.id
         ).filter(
             Source.api_config_id == self.api.id
         )
 
-        current_files = {(ef.path, ef.cached_file_id): ef.id for ef in q.yield_per(10000)}
+        current_files = {(ef[0], ef[1]): ef[2] for ef in q.yield_per(10000)}
 
         for source_file in self.api.cached_files:
             ef = source_file.preprocess()
