@@ -121,21 +121,14 @@ class API(Base, RestMixin):
 
         return q.yield_per(10000)
 
-    def cached_files_on_disk(self, missing=False, limit_ids=None) -> Query:
+    def cached_files_on_disk(self, use_hash=True, missing=False, limit_ids=None) -> Query:
 
-        q: Query = get_session().query(
-            Source.data_dir, CachedFile.path, CachedFile.id
-        ).join(
-            Source, CachedFile.source_id == Source.id
-        ).filter(
-            Source.api_config_id == self.id
-        )
+        # actually checking existence can get pretty expensive for the
+        # scenario where you have lots of files on a distributed file system
+        # so if we're pretty sure we haven't deleted the files manually, we
+        # can trust that if a hash is present in the db, then the file exists
 
-        for batch in chunked(q.yield_per(10000), 1000):
-            file_ids = {item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()}
-            if limit_ids:
-                file_ids = file_ids & limit_ids
-            files = get_session().query(
+        files = get_session().query(
                 CachedFile
             ).join(
                 Source, CachedFile.source_id == Source.id
@@ -144,13 +137,38 @@ class API(Base, RestMixin):
             ).options(
                 joinedload(CachedFile.source, innerjoin=True)
             )
-
+        
+        if use_hash:
             if missing:
-                file_ids = {item[2] for item in batch} - file_ids
+                files = files.filter(CachedFile.hash.isnot(None))
+            else:
+                files = files.filter(CachedFile.hash.is_(None))
 
-            yield files.filter(
-                CachedFile.id.in_(file_ids)
+            if limit_ids:
+                files = files.filter(CachedFile.id.in_(limit_ids))
+
+            yield files.yield_per(10000)
+
+        else:
+            q: Query = get_session().query(
+                Source.data_dir, CachedFile.path, CachedFile.id
+            ).join(
+                Source, CachedFile.source_id == Source.id
+            ).filter(
+                Source.api_config_id == self.id
             )
+        
+            for batch in chunked(q.yield_per(10000), 1000):
+                file_ids = {item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()}
+                if limit_ids:
+                    file_ids = file_ids & limit_ids
+
+                if missing:
+                    file_ids = {item[2] for item in batch} - file_ids
+
+                yield files.filter(
+                    CachedFile.id.in_(file_ids)
+                )
 
 
 class ExpectedMode(enum.Enum):
