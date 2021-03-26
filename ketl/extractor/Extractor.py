@@ -39,7 +39,8 @@ class DefaultExtractor(BaseExtractor):
     BLOCK_SIZE = 16384
 
     def __init__(self, api_config: Union[API, int, str], skip_exiting_files: bool = False,
-                 show_progress: bool = False, concurrency: str = 'sync'):
+                 show_progress: bool = False, concurrency: str = 'sync',
+                 on_disk_check='full'):
 
         if type(api_config) is int:
             self.api = get_session().query(API).filter(API.id == api_config).one()
@@ -53,6 +54,7 @@ class DefaultExtractor(BaseExtractor):
         self.skip_existing_files = skip_exiting_files
         self.show_progress = show_progress
         self.concurrency = concurrency
+        self.on_disk_check = on_disk_check
 
         if self.api.creds:
             details = self.api.creds.creds_details
@@ -72,7 +74,8 @@ class DefaultExtractor(BaseExtractor):
         # we produce an iterable that is either a list of queries that will
         # give us the files that are missing, or a chunked version of a query
         if self.skip_existing_files:
-            data_iterator: List[Query] = list(self.api.cached_files_on_disk(missing=True))
+            kwargs = {'missing': True, 'use_hash': self.on_disk_check == 'hash'}
+            data_iterator: List[Query] = list(self.api.cached_files_on_disk(**kwargs))
         else:
             data_iterator: Iterator[List[CachedFile]] = chunked(self.api.cached_files.options(
                 defer(CachedFile.meta)), 10000)
@@ -81,6 +84,8 @@ class DefaultExtractor(BaseExtractor):
             if isinstance(batch, Query):
                 batch = batch.all()
 
+            results = []
+            
             if self.concurrency == 'sync':
                 results = list(
                     filter(None, [self.get_file(cached_file, show_progress=self.show_progress)
@@ -97,7 +102,7 @@ class DefaultExtractor(BaseExtractor):
                         results = futures.get()
                         if results:
                             results = list(filter(None, results))
-                pool.join()
+                    pool.join()
 
             session.bulk_update_mappings(CachedFile, results)
             session.commit()
