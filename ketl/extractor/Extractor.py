@@ -85,7 +85,7 @@ class DefaultExtractor(BaseExtractor):
                 batch = batch.all()
 
             results = []
-            
+
             if self.concurrency == 'sync':
                 results = list(
                     filter(None, [self.get_file(cached_file, show_progress=self.show_progress)
@@ -181,10 +181,10 @@ class DefaultExtractor(BaseExtractor):
         # c.f. https://forums.aws.amazon.com/thread.jspa?threadID=55746
 
         url_to_fetch = url.url
-        if (url.scheme in {'s3', 's3a'} or url.host == 's3.amazonaws.com'):
+        if url.scheme in {'s3', 's3a'} or url.host == 's3.amazonaws.com':
             url_to_fetch = f'{url.scheme}://{url.host}/{quote(str(url.path))}'
             if url.fragmentstr != '':
-                url_to_fetch += quote(f'#{url.fragmentstr}')
+                url_to_fetch += quote(f'#{url.fragmentstr}', safe='%')
             if url.querystr != '':
                 url_to_fetch += f'&{url.querystr}'
 

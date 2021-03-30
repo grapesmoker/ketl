@@ -137,7 +137,7 @@ class API(Base, RestMixin):
             ).options(
                 joinedload(CachedFile.source, innerjoin=True)
             )
-        
+
         if use_hash:
             if missing:
                 files = files.filter(CachedFile.hash.isnot(None))
@@ -157,7 +157,7 @@ class API(Base, RestMixin):
             ).filter(
                 Source.api_config_id == self.id
             )
-        
+
             for batch in chunked(q.yield_per(10000), 1000):
                 file_ids = {item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()}
                 if limit_ids:

@@ -1,3 +1,5 @@
+import pandas as pd
+
 from typing import Dict, List, Callable, Optional, Union, Type
 from itertools import product
 from pathlib import Path
@@ -59,7 +61,9 @@ class ETLPipeline:
                 # TODO: parallelize this using joblib or something like that
                 for transformer in transformers:
                     loaders = self.fanout.get(transformer, [])
-                    for df in transformer.transform(result):
-                        for loader in loaders:  # type: BaseLoader
-                            loader.load(df)
-                            loader.finalize()
+                    for df in transformer.transform(result):  # type: pd.DataFrame
+                        if not df.empty:
+                            for loader in loaders:  # type: BaseLoader
+                                loader.load(df)
+                                loader.finalize()
+
