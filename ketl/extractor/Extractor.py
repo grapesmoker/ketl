@@ -246,10 +246,15 @@ class DefaultExtractor(BaseExtractor):
             parsed_url = up.urlparse(source_url)
             if parsed_url.scheme == 'ftp':
                 result = self._fetch_ftp_file(source_url,
+                                              target_file,
+                                              refresh_interval,
                                               show_progress=show_progress,
                                               force_download=force_download)
             else:
                 result = self._fetch_generic_file(source_url,
+                                                  target_file,
+                                                  refresh_interval,
+                                                  url_params,
                                                   headers=self.headers,
                                                   auth=self.auth,
                                                   show_progress=show_progress,
