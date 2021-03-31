@@ -75,14 +75,11 @@ class DefaultExtractor(BaseExtractor):
         # give us the files that are missing, or a chunked version of a query
         if self.skip_existing_files:
             kwargs = {'missing': True, 'use_hash': self.on_disk_check == 'hash'}
-            data_iterator: List[Query] = list(self.api.cached_files_on_disk(**kwargs))
+            data_iterator: Query = self.api.cached_files_on_disk(**kwargs)
         else:
-            data_iterator: Iterator[List[CachedFile]] = chunked(self.api.cached_files.options(
-                defer(CachedFile.meta)), 10000)
+            data_iterator: Query = self.api.cached_files.options(defer(CachedFile.meta))
 
-        for batch in data_iterator:  # type: List[CachedFile]
-            if isinstance(batch, Query):
-                batch = batch.all()
+        for batch in chunked(data_iterator, 10000):  # type: List[CachedFile]
 
             results = []
 
