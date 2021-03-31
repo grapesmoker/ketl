@@ -65,5 +65,5 @@ class ETLPipeline:
                         if not df.empty:
                             for loader in loaders:  # type: BaseLoader
                                 loader.load(df)
-                                loader.finalize()
-
+                    for loader in loaders:
+                        loader.finalize()

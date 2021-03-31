@@ -46,6 +46,8 @@ class API(Base, RestMixin):
     creds = relationship('Creds', back_populates='api_config', lazy='joined', uselist=False)
     hash = Column(String)
 
+    BATCH_SIZE = 10000
+
     @abstractmethod
     def setup(self):
         """
@@ -106,7 +108,7 @@ class API(Base, RestMixin):
             Source.api_config_id == self.id
         )
 
-        return q.yield_per(10000)
+        return q.yield_per(self.BATCH_SIZE)
 
     @property
     def cached_files(self) -> Query:
@@ -119,7 +121,7 @@ class API(Base, RestMixin):
             Source.api_config_id == self.id
         )
 
-        return q.yield_per(10000)
+        return q.yield_per(self.BATCH_SIZE)
 
     def cached_files_on_disk(self, use_hash=True, missing=False, limit_ids=None) -> Query:
 
@@ -129,14 +131,12 @@ class API(Base, RestMixin):
         # can trust that if a hash is present in the db, then the file exists
 
         files = get_session().query(
-                CachedFile
-            ).join(
-                Source, CachedFile.source_id == Source.id
-            ).filter(
-                Source.api_config_id == self.id
-            ).options(
-                joinedload(CachedFile.source, innerjoin=True)
-            )
+            CachedFile
+        ).join(
+            Source, CachedFile.source_id == Source.id
+        ).filter(
+            Source.api_config_id == self.id
+        )
 
         if use_hash:
             if missing:
@@ -147,7 +147,7 @@ class API(Base, RestMixin):
             if limit_ids:
                 files = files.filter(CachedFile.id.in_(limit_ids))
 
-            yield files.yield_per(10000)
+            return files.yield_per(self.BATCH_SIZE)
 
         else:
             q: Query = get_session().query(
@@ -158,17 +158,17 @@ class API(Base, RestMixin):
                 Source.api_config_id == self.id
             )
 
-            for batch in chunked(q.yield_per(10000), 1000):
+            file_ids = set()
+            for batch in chunked(q.yield_per(self.BATCH_SIZE), self.BATCH_SIZE):
                 file_ids = {item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()}
-                if limit_ids:
-                    file_ids = file_ids & limit_ids
 
-                if missing:
-                    file_ids = {item[2] for item in batch} - file_ids
+            if limit_ids:
+                file_ids = file_ids & limit_ids
 
-                yield files.filter(
-                    CachedFile.id.in_(file_ids)
-                )
+            if missing:
+                file_ids = {item[2] for item in batch} - file_ids
+
+            return files.filter(CachedFile.id.in_(file_ids)).yield_per(self.BATCH_SIZE)
 
 
 class ExpectedMode(enum.Enum):

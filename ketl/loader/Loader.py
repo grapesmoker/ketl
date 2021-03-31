@@ -47,7 +47,6 @@ class HashLoader(BaseLoader):
         pass
 
 
-
 class LocalFileLoader(BaseLoader):
 
     def __init__(self, destination: Union[Path, str], naming_func: Callable = None, **kwargs):
