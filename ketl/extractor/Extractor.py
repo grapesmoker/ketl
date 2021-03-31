@@ -85,14 +85,22 @@ class DefaultExtractor(BaseExtractor):
 
             if self.concurrency == 'sync':
                 results = list(
-                    filter(None, [self.get_file(cached_file, show_progress=self.show_progress)
-                                  for cached_file in batch])
+                    filter(None, [
+                        self.get_file(
+                            cached_file.id, cached_file.full_url, cached_file.full_path,
+                            cached_file.refresh_interval, cached_file.url_params,
+                            show_progress=self.show_progress
+                        ) for cached_file in batch])
                 )
             elif self.concurrency == 'async':
                 raise NotImplementedError('Async downloads not yet implemented.')
             elif self.concurrency == 'multiprocess':
-                get_file_args = [(cached_file, self.show_progress)
-                                 for cached_file in batch]
+                get_file_args = [(
+                    cached_file.id, cached_file.full_url, cached_file.full_path,
+                    cached_file.refresh_interval, cached_file.url_params,
+                    self.show_progress
+                ) for cached_file in batch]
+
                 if get_file_args:
                     with Pool() as pool:
                         futures = pool.starmap_async(self.get_file, get_file_args)
@@ -135,16 +143,16 @@ class DefaultExtractor(BaseExtractor):
         return [Path(ef.path) for ef in self.api.expected_files]
 
     @classmethod
-    def _fetch_ftp_file(cls, source_file: CachedFile, show_progress=False, force_download=False) -> bool:
+    def _fetch_ftp_file(cls, source_url: str, target_file: Path, refresh_interval: timedelta,
+                        show_progress=False, force_download=False) -> bool:
 
-        parsed_url = up.urlparse(source_file.full_url)
+        parsed_url = up.urlparse(source_url)
         ftp = FTP(parsed_url.hostname)
         ftp.login()
         total_size = ftp.size(parsed_url.path)
         updated = False
 
-        target_file = source_file.full_path
-        if cls._requires_update(target_file, total_size, source_file.refresh_interval) or force_download:
+        if cls._requires_update(target_file, total_size, refresh_interval) or force_download:
 
             bar = tqdm(total=total_size, unit='B', unit_scale=True) if show_progress else None
 
@@ -161,18 +169,18 @@ class DefaultExtractor(BaseExtractor):
         return updated
 
     @classmethod
-    def _fetch_generic_file(cls, source_file: CachedFile, headers=None, auth=None,
+    def _fetch_generic_file(cls, source_url: str, target_file: Path, refresh_interval: timedelta,
+                            url_params=None, headers=None, auth=None,
                             show_progress=False, force_download=False) -> bool:
 
         transport_params = {}
-        url = furl(source_file.full_url)
-        target_file = source_file.full_path
+        url = furl(source_url)
         if headers:
             transport_params['headers'] = headers
         if auth:
             transport_params.update(auth)
-        if source_file.url_params:
-            url.add(source_file.url_params)
+        if url_params:
+            url.add(url_params)
 
         # tragic hack that is necessitated by s3's failure to properly conform to http spec
         # c.f. https://forums.aws.amazon.com/thread.jspa?threadID=55746
@@ -188,7 +196,7 @@ class DefaultExtractor(BaseExtractor):
         updated = False
         with smart_open(url_to_fetch, 'rb', ignore_ext=True, transport_params=transport_params) as r:
             total_size = getattr(r, 'content_length', -1)
-            if cls._requires_update(target_file, total_size, source_file.refresh_interval) or force_download:
+            if cls._requires_update(target_file, total_size, refresh_interval) or force_download:
                 target_file.parent.mkdir(exist_ok=True, parents=True)
                 bar = tqdm(total=total_size, unit='B', unit_scale=True) if show_progress else None
                 with open(target_file.as_posix(), 'wb') as f:
@@ -231,16 +239,17 @@ class DefaultExtractor(BaseExtractor):
         if bar:
             bar.close()
 
-    def get_file(self, source_file: CachedFile, show_progress=False, force_download=False) -> Optional[dict]:
+    def get_file(self, cached_file_id: int, source_url: str, target_file: Path, refresh_interval: timedelta,
+                 url_params=None, show_progress=False, force_download=False) -> Optional[dict]:
 
         try:
-            parsed_url = up.urlparse(source_file.full_url)
+            parsed_url = up.urlparse(source_url)
             if parsed_url.scheme == 'ftp':
-                result = self._fetch_ftp_file(source_file,
+                result = self._fetch_ftp_file(source_url,
                                               show_progress=show_progress,
                                               force_download=force_download)
             else:
-                result = self._fetch_generic_file(source_file,
+                result = self._fetch_generic_file(source_url,
                                                   headers=self.headers,
                                                   auth=self.auth,
                                                   show_progress=show_progress,
@@ -248,16 +257,16 @@ class DefaultExtractor(BaseExtractor):
 
             if result:
                 return {
-                    'id': source_file.id,
-                    'hash': file_hash(source_file.full_path).hexdigest(),
+                    'id': cached_file_id,
+                    'hash': file_hash(target_file).hexdigest(),
                     'last_download': datetime.now(),
-                    'size': source_file.full_path.stat().st_size
+                    'size': target_file.stat().st_size
                 }
             else:
                 return None
 
         except Exception as ex:
-            print(f'Could not download {source_file.url}: {ex}')
+            print(f'Could not download {source_url}: {ex}')
             return None
 
     @staticmethod
