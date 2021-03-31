@@ -140,9 +140,9 @@ class API(Base, RestMixin):
 
         if use_hash:
             if missing:
-                files = files.filter(CachedFile.hash.isnot(None))
-            else:
                 files = files.filter(CachedFile.hash.is_(None))
+            else:
+                files = files.filter(CachedFile.hash.isnot(None))
 
             if limit_ids:
                 files = files.filter(CachedFile.id.in_(limit_ids))
