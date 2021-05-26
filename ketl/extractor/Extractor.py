@@ -38,8 +38,11 @@ class DefaultExtractor(BaseExtractor):
     """
     BLOCK_SIZE = 16384
 
-    def __init__(self, api_config: Union[API, int, str], skip_exiting_files: bool = False,
-                 show_progress: bool = False, concurrency: str = 'sync',
+    def __init__(self, api_config: Union[API, int, str],
+                 skip_existing_files: bool = False,
+                 overwrite_on_extract=True,
+                 show_progress: bool = False,
+                 concurrency: str = 'sync',
                  on_disk_check='full'):
 
         if type(api_config) is int:
@@ -51,7 +54,7 @@ class DefaultExtractor(BaseExtractor):
         self.headers = {}
         self.auth = None
         self.auth_token = None
-        self.skip_existing_files = skip_exiting_files
+        self.skip_existing_files = skip_existing_files
         self.show_progress = show_progress
         self.concurrency = concurrency
         self.on_disk_check = on_disk_check
@@ -69,7 +72,7 @@ class DefaultExtractor(BaseExtractor):
     def extract(self) -> List[Path]:
 
         session = get_session()
-        
+
         # depending on whether we are skipping files known to be on disk
         # we produce an iterable that is either a list of queries that will
         # give us the files that are missing, or a chunked version of a query
@@ -81,7 +84,7 @@ class DefaultExtractor(BaseExtractor):
 
         data_iterator = data_iterator.options(defer(CachedFile.meta))
         collected_results = []
-        
+
         for batch in tqdm(chunked(data_iterator, 10000)):  # type: List[CachedFile]
 
             if self.concurrency == 'sync':
@@ -94,7 +97,7 @@ class DefaultExtractor(BaseExtractor):
                         ) for cached_file in batch])
                 )
                 collected_results.extend(results)
-                
+
             elif self.concurrency == 'async':
                 raise NotImplementedError('Async downloads not yet implemented.')
             elif self.concurrency == 'multiprocess':
@@ -112,14 +115,14 @@ class DefaultExtractor(BaseExtractor):
                             results = list(filter(None, results))
                             collected_results.extend(results)
                     pool.join()
-                    
+
             session.bulk_update_mappings(CachedFile, collected_results)
 
         session.commit()
 
         new_expected_files: List[dict] = []
         updated_expected_files: List[dict] = []
-        
+
         q: Query = session.query(
             ExpectedFile.path, ExpectedFile.cached_file_id, ExpectedFile.id
         ).join(
@@ -140,7 +143,7 @@ class DefaultExtractor(BaseExtractor):
                     new_expected_files.append(ef)
                 else:
                     updated_expected_files.append({'id': current_files[key], **ef})
-        
+
         session.bulk_insert_mappings(ExpectedFile, new_expected_files)
         session.bulk_update_mappings(ExpectedFile, updated_expected_files)
         session.commit()

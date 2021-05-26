@@ -240,7 +240,7 @@ class CachedFile(Base):
 
         return sha1()
 
-    def preprocess(self) -> Optional[dict]:
+    def preprocess(self, overwrite_on_extract=True) -> Optional[dict]:
         """
         Preprocess the file, extracting and creating expected files as needed.
         :return: Optionally returns an expected file, if one was created directly from the
@@ -251,9 +251,9 @@ class CachedFile(Base):
         if self.is_archive:
             expected_paths: Set[Path] = {Path(file.path) for file in self.expected_files}
             if tarfile.is_tarfile(self.full_path):
-                self._extract_tar(extract_dir, expected_paths)
+                self._extract_tar(extract_dir, expected_paths, overwrite_on_extract=overwrite_on_extract)
             elif zipfile.is_zipfile(self.full_path):
-                self._extract_zip(extract_dir, expected_paths)
+                self._extract_zip(extract_dir, expected_paths, overwrite_on_extract=overwrite_on_extract)
             elif self.full_path.name.endswith('.gz'):
                 self._extract_gzip(extract_dir)
             elif self.full_path.suffix in ['.xz', '.lz', '.lzma']:
@@ -262,7 +262,7 @@ class CachedFile(Base):
         elif self.expected_mode == ExpectedMode.self:
             return {'cached_file_id': self.id, 'path': str(self.full_path)}
 
-    def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path]):
+    def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path], overwrite_on_extract=True):
         """
         Extracts a tarball into the target directory. Creates expected files as needed.
         :param extract_dir: The directory to which the tarball is to be extracted.
@@ -272,8 +272,11 @@ class CachedFile(Base):
         tf = tarfile.open(self.full_path)
         if self.expected_mode == ExpectedMode.auto:
             archived_paths = {Path(file) for file in tf.getnames()}
-            self._generate_expected_files(extract_dir, archived_paths, expected_paths)
-            tf.extractall(path=extract_dir)
+            missing_files = self._generate_expected_files(extract_dir, archived_paths, expected_paths)
+            if overwrite_on_extract:
+                tf.extractall(path=extract_dir)
+            else:
+                tf.extractall(path=extract_dir, members=[tarfile.TarInfo(name=str(file)) for file in missing_files])
         elif self.expected_mode == ExpectedMode.explicit:
             for file in self.expected_files:
                 target = extract_dir / file.path
@@ -281,7 +284,7 @@ class CachedFile(Base):
                     with tf.extractfile(file.archive_path) as source_file:
                         shutil.copyfileobj(source_file, target_file)
 
-    def _extract_zip(self, extract_dir: Path, expected_paths: Set[Path]):
+    def _extract_zip(self, extract_dir: Path, expected_paths: Set[Path], overwrite_on_extract=True):
         """
         Extracts a zip archive into the target directory. Creates expected files as needed.
         :param extract_dir: The directory to which the archive is to be extracted.
@@ -291,8 +294,11 @@ class CachedFile(Base):
         zf = zipfile.ZipFile(self.full_path)
         archived_paths = {Path(file) for file in zf.namelist()}
         if self.expected_mode == ExpectedMode.auto:
-            self._generate_expected_files(extract_dir, archived_paths, expected_paths)
-            zf.extractall(path=extract_dir)
+            missing_files = self._generate_expected_files(extract_dir, archived_paths, expected_paths)
+            if overwrite_on_extract:
+                zf.extractall(path=extract_dir)
+            else:
+                zf.extractall(path=extract_dir, members=[str(file) for file in missing_files])
         elif self.expected_mode == ExpectedMode.explicit:
             for file in self.expected_files:
                 target = extract_dir / file.path
@@ -341,13 +347,14 @@ class CachedFile(Base):
             with lzma.open(self.full_path, 'r') as source:
                 shutil.copyfileobj(source, target)
 
-    def _generate_expected_files(self, extract_dir: Path, archived_paths: Set[Path], expected_paths: Set[Path]) -> None:
+    def _generate_expected_files(self, extract_dir: Path, archived_paths: Set[Path], expected_paths: Set[Path]
+                                 ) -> Set[Path]:
         """
         Generates expected file entries in the table if they do not already exist.
         :param extract_dir: The directory to which the archive is to be extracted.
         :param archived_paths: The list of paths contained in the archive.
         :param expected_paths: The list of expected files.
-        :return: None
+        :return: A set of paths for which expected files have been generated
         """
         session = get_session()
 
@@ -355,6 +362,9 @@ class CachedFile(Base):
         expected_files = [ExpectedFile(path=str(extract_dir / path), cached_file=self)
                           for path in missing_paths]
         session.bulk_save_objects(expected_files)
+        session.commit()
+
+        return missing_paths
 
 
 class Creds(Base):
