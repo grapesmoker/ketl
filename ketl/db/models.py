@@ -309,7 +309,7 @@ class CachedFile(Base):
                     if source != target.resolve():
                         shutil.move(source, target)
 
-    def _determine_target(self, extract_dir: Path) -> Path:
+    def _determine_target(self, extract_dir: Path) -> Optional[Path]:
 
         if len(self.expected_files) > 1:
             raise InvalidConfigurationError(f'More than 1 expected file configured for a gz archive: {self.path}')
@@ -320,6 +320,8 @@ class CachedFile(Base):
                                             f'no expected files supplied.')
         elif len(self.expected_files) == 1 and self.expected_mode == ExpectedMode.explicit:
             return extract_dir / self.expected_files[0].path
+        elif len(self.expected_files) == 0:
+            return None
         else:
             raise InvalidConfigurationError('Something very bad has happened :(')
 
@@ -331,9 +333,10 @@ class CachedFile(Base):
         """
         result_file = self._determine_target(extract_dir)
 
-        with open(result_file, 'wb') as target:
-            with gzip.open(self.full_path, 'r') as source:
-                shutil.copyfileobj(source, target)
+        if result_file:
+            with open(result_file, 'wb') as target:
+                with gzip.open(self.full_path, 'r') as source:
+                    shutil.copyfileobj(source, target)
 
     def _extract_lzma(self, extract_dir: Path) -> None:
         """
@@ -343,9 +346,10 @@ class CachedFile(Base):
         """
         result_file = self._determine_target(extract_dir)
 
-        with open(result_file, 'wb') as target:
-            with lzma.open(self.full_path, 'r') as source:
-                shutil.copyfileobj(source, target)
+        if result_file:
+            with open(result_file, 'wb') as target:
+                with lzma.open(self.full_path, 'r') as source:
+                    shutil.copyfileobj(source, target)
 
     def _generate_expected_files(self, extract_dir: Path, archived_paths: Set[Path], expected_paths: Set[Path]
                                  ) -> Set[Path]:
