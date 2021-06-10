@@ -48,13 +48,12 @@ class RestMixin:
         else:
             raise ValueError(f'Unsupported method: {method}')
 
-        try:
+        if result.ok:
             json_result = result.json()
-        except:
-            import ipdb
-            ipdb.set_trace()
             
-        if result_schema:
-            return result_schema.load(data=json_result)
+            if result_schema:
+                return result_schema.load(data=json_result)
+            else:
+                return json_result
         else:
-            return json_result
+            result.raise_for_status()
