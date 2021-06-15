@@ -98,8 +98,8 @@ class DefaultExtractor(BaseExtractor):
                 )
                 collected_results.extend(results)
 
-            elif self.concurrency == 'async':
-                raise NotImplementedError('Async downloads not yet implemented.')
+            elif self.concurrency == 'async':  # pargma: no cover
+                raise NotImplementedError('Async downloads not yet implemented.')  # pragma: no cover
             elif self.concurrency == 'multiprocess':
                 get_file_args = [(
                     cached_file.id, cached_file.full_url, cached_file.full_path,
@@ -171,7 +171,7 @@ class DefaultExtractor(BaseExtractor):
                                partial(cls._ftp_writer, f, bar=bar),
                                blocksize=cls.BLOCK_SIZE)
             if bar:
-                bar.close()
+                bar.close()  # pragma: no cover
             updated = True
 
         return updated
@@ -193,13 +193,7 @@ class DefaultExtractor(BaseExtractor):
         # tragic hack that is necessitated by s3's failure to properly conform to http spec
         # c.f. https://forums.aws.amazon.com/thread.jspa?threadID=55746
 
-        url_to_fetch = url.url
-        if url.scheme in {'s3', 's3a'} or url.host == 's3.amazonaws.com':
-            url_to_fetch = f'{url.scheme}://{url.host}/{quote(str(url.path))}'
-            if url.fragmentstr != '':
-                url_to_fetch += quote(f'#{url.fragmentstr}', safe='%')
-            if url.querystr != '':
-                url_to_fetch += f'&{url.querystr}'
+        url_to_fetch = cls._handle_s3_urls(url)
 
         updated = False
         with smart_open(url_to_fetch, 'rb', ignore_ext=True, transport_params=transport_params) as r:
@@ -214,6 +208,19 @@ class DefaultExtractor(BaseExtractor):
                 updated = True
 
         return updated
+
+    @staticmethod
+    def _handle_s3_urls(url: furl.url):
+
+        url_to_fetch = url.url
+        if url.scheme in {'s3', 's3a'} or url.host == 's3.amazonaws.com':
+            url_to_fetch = f'{url.scheme}://{url.host}{quote(str(url.path))}'
+            if str(url.fragment) != '':
+                url_to_fetch += quote(f'#{url.fragment}', safe='%')
+            if str(url.query) != '':
+                url_to_fetch += f'&{url.query}'
+
+        return url_to_fetch
 
     @staticmethod
     def _ftp_writer(dest, block, bar=None):

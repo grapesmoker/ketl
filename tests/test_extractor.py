@@ -11,6 +11,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from unittest import mock
 from hashlib import sha1
+from furl import furl
 
 from ketl.db import models
 from ketl.extractor.Extractor import BaseExtractor, DefaultExtractor
@@ -58,6 +59,26 @@ def test_default_extractor_init():
     extractor_with_id = DefaultExtractor(api.id)
     extractor_with_name = DefaultExtractor(api.name)
     assert extractor_with_id.api == extractor.api == extractor_with_name.api
+
+
+def test_handle_s3_urls():
+
+    api = APIFactory(name='my nice api')
+    extractor = DefaultExtractor(api)
+
+    bad_s3_url = 's3://some-bucket/badly#formed-file'
+    url = furl(bad_s3_url)
+
+    result = extractor._handle_s3_urls(url)
+
+    assert result == 's3://some-bucket/badly%23formed-file'
+
+    bad_s3_url = 's3://some-bucket/badly&formed-file'
+    url = furl(bad_s3_url)
+
+    result = extractor._handle_s3_urls(url)
+
+    assert result == 's3://some-bucket/badly%26formed-file'
 
 
 def test_ftp_writer():
@@ -128,8 +149,9 @@ def test_update_cache_file(session, tmp_path):
     assert cached_file.size == 11
 
 
+@mock.patch('ketl.extractor.Extractor.Pool')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor.get_file')
-def test_extract(mock_get_file):
+def test_extract(mock_get_file, mock_pool):
 
     api: models.API = APIFactory()
     source: models.Source = SourceFactory(api_config=api, data_dir='data/dir')
@@ -138,6 +160,7 @@ def test_extract(mock_get_file):
 
     cached_file1: models.CachedFile = CachedFileFactory(url='url/to/file1', path='path/to/file1',
                                                         expected_mode=models.ExpectedMode.self,
+                                                        hash='hash1',
                                                         source=source)
     cached_file2: models.CachedFile = CachedFileFactory(url='url/to/file2', path='path/to/file2',
                                                         expected_mode=models.ExpectedMode.self,
@@ -145,6 +168,55 @@ def test_extract(mock_get_file):
     cached_file3: models.CachedFile = CachedFileFactory(url='url/to/file3', path='path/to/file3',
                                                         expected_mode=models.ExpectedMode.self,
                                                         source=source)
+
+    mock_get_file.side_effect = [
+        {'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1},
+        {'id': cached_file2.id, 'hash': 'hash2', 'last_download': datetime.datetime.now(), 'size': 1},
+        None
+    ]
+
+    expected_files = extractor.extract()
+
+    for i, ef in enumerate(expected_files):
+        assert f'data/dir/path/to/file{i + 1}' in str(ef)
+
+    # test with only missing files
+    extractor = DefaultExtractor(api, skip_existing_files=True, on_disk_check='hash')
+
+    mock_get_file.side_effect = [
+        {'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1},
+        {'id': cached_file2.id, 'hash': 'hash2', 'last_download': datetime.datetime.now(), 'size': 1},
+        None
+    ]
+
+    expected_files = extractor.extract()
+
+    for i, ef in enumerate(expected_files):
+        assert f'data/dir/path/to/file{i + 1}' in str(ef)
+
+    # test with multiprocessing
+
+    mock_future1 = mock.Mock()
+    mock_future2 = mock.Mock()
+    mock_future3 = mock.Mock()
+
+    mock_future1.get.return_value = {
+        'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1
+    }
+    mock_future2.get.return_value = {
+        'id': cached_file2.id, 'hash': 'hash2', 'last_download': datetime.datetime.now(), 'size': 1
+    }
+    mock_future3.get.return_value = None
+
+    mock_futures = mock.Mock()
+    mock_futures.get.return_value = [mock_future1, mock_future2, mock_future3]
+
+    mock_mp_pool = mock.Mock()
+    mock_mp_pool.starmap_async.return_value = mock_futures
+    mock_mp_pool.join.return_value = None
+    mock_pool.__enter__.return_value = mock_mp_pool
+
+    extractor = DefaultExtractor(api, concurrency='multiprocess')
 
     mock_get_file.side_effect = [
         {'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1},
@@ -207,6 +279,7 @@ def test_fetch_generic_file(mock_generic_writer, mock_requires_update, mock_smar
     with NamedTemporaryFile(dir=tmp_path) as tf:
         result = extractor._fetch_generic_file(cached_file.full_url, Path(tf.name),
                                                timedelta(days=7),
+                                               url_params=cached_file.url_params,
                                                headers={'Bearer': 'Token'},
                                                auth={'username': 'user', 'password': 'password'})
 
