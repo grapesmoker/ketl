@@ -25,8 +25,16 @@ from sqlalchemy.orm import relationship, joinedload, Query
 from ketl.extractor.Rest import RestMixin
 from ketl.utils.file_utils import file_hash
 from ketl.utils.db_utils import get_or_create
-from ketl.db.settings import get_engine, get_session
+from ketl.db.settings import get_engine, get_session, DB_DSN
 
+# if we are using postgres, supply special arguments for indexing
+# metadata and using JSON fields
+if furl(DB_DSN).scheme == 'postgresql':
+    JSON_COL = JSONB  # pragma: no cover
+    index_args = dict(postgresql_using='gin')  # pragma: no cover
+else:
+    JSON_COL = JSON
+    index_args = dict()
 
 Base = declarative_base()
 
@@ -163,7 +171,7 @@ class API(Base, RestMixin):
                 file_ids = {item[2] for item in batch if (Path(item[0]) / item[1]).resolve().exists()}
 
             if limit_ids:
-                file_ids = file_ids & limit_ids
+                file_ids = file_ids & set(limit_ids)
 
             if missing:
                 file_ids = {item[2] for item in batch} - file_ids
@@ -193,7 +201,7 @@ class CachedFile(Base):
 
     __table_args__ = (
         UniqueConstraint('source_id', 'url', 'path'),
-        Index('ix_ketl_cached_file_meta', 'meta', postgresql_using='gin')
+        Index('ix_ketl_cached_file_meta', 'meta', **index_args)
     )
 
     id = Column(Integer, primary_key=True)
@@ -201,7 +209,7 @@ class CachedFile(Base):
     source = relationship('Source', back_populates='source_files')
     expected_files = relationship('ExpectedFile', back_populates='cached_file')
     url = Column(String, index=True)
-    url_params = Column(JSONB)
+    url_params = Column(JSON_COL)
     path = Column(String, index=True)  # path relative to source
     last_download = Column(DateTime, nullable=True, index=True)
     last_update = Column(DateTime, nullable=True, index=True)
@@ -212,7 +220,7 @@ class CachedFile(Base):
     is_archive = Column(Boolean, index=True, default=False)
     extract_to = Column(String, index=True, nullable=True)
     expected_mode = Column(Enum(ExpectedMode), index=True, default=ExpectedMode.explicit)
-    meta = Column(JSONB, nullable=True)
+    meta = Column(JSON_COL, nullable=True)
 
     @property
     def full_path(self) -> Path:
@@ -320,8 +328,6 @@ class CachedFile(Base):
                                             f'no expected files supplied.')
         elif len(self.expected_files) == 1 and self.expected_mode == ExpectedMode.explicit:
             return extract_dir / self.expected_files[0].path
-        elif len(self.expected_files) == 0:
-            return None
         else:
             raise InvalidConfigurationError('Something very bad has happened :(')
 
@@ -373,7 +379,7 @@ class CachedFile(Base):
 
 class Creds(Base):
     """
-    A simple class for keeping track of credentials. Details are stored in a JSONB blob.
+    A simple class for keeping track of credentials. Details are stored in a JSON blob.
 
     SECURITY WARNING: creds are currently stored unencrypted. Don't put anything in here
     that requires real security.
@@ -384,7 +390,7 @@ class Creds(Base):
     id = Column(Integer, primary_key=True)
     api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
     api_config = relationship('API', back_populates='creds', enable_typechecks=False)
-    creds_details = Column(JSONB)
+    creds_details = Column(JSON_COL)
 
 
 class Source(Base):
@@ -396,7 +402,7 @@ class Source(Base):
 
     __table_args__ = (
         UniqueConstraint('base_url', 'data_dir', 'api_config_id'),
-        Index('ix_ketl_source_meta', 'meta', postgresql_using='gin')
+        Index('ix_ketl_source_meta', 'meta', **index_args)
     )
 
     id = Column(Integer, primary_key=True)
@@ -405,7 +411,7 @@ class Source(Base):
     data_dir = Column(String, index=True)
     api_config_id = Column(Integer, ForeignKey('ketl_api_config.id', ondelete='CASCADE'))
     api_config = relationship('API', back_populates='sources', enable_typechecks=False)
-    meta = Column(JSONB, nullable=True)
+    meta = Column(JSON_COL, nullable=True)
     source_files = relationship('CachedFile', back_populates='source',
                                 cascade='all, delete-orphan',
                                 passive_deletes=True,
@@ -439,7 +445,7 @@ class ExpectedFile(Base):
 
     __table_args__ = (
         UniqueConstraint('path', 'cached_file_id'),
-        Index('ix_ketl_expected_file_meta', 'meta', postgresql_using='gin')
+        Index('ix_ketl_expected_file_meta', 'meta', **index_args)
     )
 
     BLOCK_SIZE = 65536
@@ -454,7 +460,7 @@ class ExpectedFile(Base):
     processed = Column(Boolean, default=False, index=True)
     file_type = Column(String, index=True)
     last_processed = Column(DateTime, index=True)
-    meta = Column(JSONB, nullable=True)
+    meta = Column(JSON_COL, nullable=True)
 
     @property
     def file_hash(self):

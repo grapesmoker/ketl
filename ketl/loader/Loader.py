@@ -91,9 +91,9 @@ class ParquetLoader(LocalFileLoader):
                     self.writer.close()
                     self.writer = pq.ParquetWriter(self.full_path(data_frame), table.schema)
             self.writer.write_table(table)
-        except Exception as ex:
-            print(f'Could not process {self.full_path(data_frame)}')
-            raise ex
+        except Exception as ex:  # pragma: no cover
+            print(f'Could not process {self.full_path(data_frame)}')  # pragma: no cover
+            raise ex  # pragma: no cover
 
     def finalize(self):
 
@@ -138,14 +138,15 @@ class DatabaseLoader(BaseLoader):
 
     def finalize(self):
 
-        pass
+        pass  # pragma: no cover
 
 
-class PickleLoader(BaseLoader):
+class PickleLoader(LocalFileLoader):
 
-    def __init__(self, pickler=None, *args, **kwargs):
+    def __init__(self,destination: Union[Path, str], naming_func: Callable = None,
+                 pickler=None, **kwargs):
 
-        super().__init__(*args, **kwargs)
+        super().__init__(destination, naming_func, **kwargs)
         self.pickler = pickler or pickle.dump
 
     def load(self, obj: Any):
@@ -155,4 +156,4 @@ class PickleLoader(BaseLoader):
 
     def finalize(self):
 
-        pass
+        pass  # pragma: no cover
