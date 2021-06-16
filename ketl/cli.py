@@ -7,7 +7,7 @@ import alembic.config
 
 from alembic.config import Config, command
 from pathlib import Path
-from db import settings
+from ketl.db import settings
 
 
 @click.group()
