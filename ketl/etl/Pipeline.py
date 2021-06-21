@@ -21,7 +21,17 @@ class ETLPipeline:
                  loaders: List[BaseLoader] = None,
                  fanout: Dict[Union[BaseExtractor, BaseTransformer, BaseLoader],
                               Union[List[BaseTransformer], List[BaseLoader]]] = None):
+        """
+        Initialize the ETL pipeline. If a fanout is provided, checks the fanout for validity and
+        ignores any other parameters. If a fanout is not provided, construct one from the provided
+        extractors, transformers, and loaders where each extractor feeds each transformer and
+        each transformer feeds each loader.
 
+        :param extractors: A list of Extractors.
+        :param transformers: A list of Transformers.
+        :param loaders: A list of Loaders.
+        :param fanout: A fanout. Other parameters ignored if fanout is provided.
+        """
         extractors = extractors or []
         transformers = transformers or []
         loaders = loaders or []
@@ -42,18 +52,30 @@ class ETLPipeline:
             self.fanout = fanout
 
     def execute(self):
+        """
+        Run the pipeline. Fires the extractors, then feeds the results into the transformers.
+        :return: None
+        """
 
         extraction_results = self._fire_extractors()
         self._fire_transformers(extraction_results)
 
     def _fire_extractors(self) -> Dict[BaseExtractor, List[Path]]:
-
+        """
+        Fire the extractors.
+        :return: A dictionary whose keys are extractors and whose values are lists of paths
+        produced by the extractors.
+        """
         results = {op: op.extract() for op in self.fanout if isinstance(op, BaseExtractor)}
 
         return results
 
     def _fire_transformers(self, extraction_results: Dict[BaseExtractor, List[Path]]):
-
+        """
+        Fire the transformers. Each transformer result feeds the associated loaders.
+        :param extraction_results:
+        :return: None
+        """
         for op in self.fanout:
             if isinstance(op, BaseExtractor):
                 result = extraction_results[op]

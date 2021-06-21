@@ -70,6 +70,13 @@ class DefaultExtractor(BaseExtractor):
                 self.headers[self.auth_token['header']] = self.auth_token['token']
 
     def extract(self) -> List[Path]:
+        """
+        Run the extractor. Attempts to minimize the amount of repeated work by checking
+        which cached files actually exist, whether on disk or in the database, and batching
+        downloads. Optionally distributes the work across processes if the `concurrency`
+        parameter is set to `multiprocess`.
+        :return:
+        """
 
         session = get_session()
 
@@ -153,6 +160,15 @@ class DefaultExtractor(BaseExtractor):
     @classmethod
     def _fetch_ftp_file(cls, source_url: str, target_file: Path, refresh_interval: timedelta,
                         show_progress=False, force_download=False) -> bool:
+        """
+        Fetch a file from the FTP.
+        :param source_url: the source url to fetch.
+        :param target_file: the location to which the file is to be downloaded.
+        :param refresh_interval: maximum age of the file if it exists.
+        :param show_progress: whether to show a tqdm progress bar.
+        :param force_download: force downloads regardless of file existence.
+        :return: whether the file was downloaded successfully.
+        """
 
         parsed_url = up.urlparse(source_url)
         ftp = FTP(parsed_url.hostname)
@@ -180,6 +196,18 @@ class DefaultExtractor(BaseExtractor):
     def _fetch_generic_file(cls, source_url: str, target_file: Path, refresh_interval: timedelta,
                             url_params=None, headers=None, auth=None,
                             show_progress=False, force_download=False) -> bool:
+        """
+        Fetch a file from any scheme which is smart_open-able (e.g. https://, s3://, etc).
+        :param source_url: the source url to fetch.
+        :param target_file: the location to which the file is to be downloaded.
+        :param refresh_interval: maximum age of the file if it exists.
+        :param url_params: optional query parameters.
+        :param headers: optional headers.
+        :param auth: optional authorization parameters.
+        :param show_progress: whether to show a tqdm progress bar.
+        :param force_download: force downloads regardless of file existence.
+        :return: whether the file was downloaded successfully
+        """
 
         transport_params = {}
         url = furl(source_url)
@@ -211,7 +239,11 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _handle_s3_urls(url: furl.url):
-
+        """
+        Munge S3 URLs so that filenames that include e.g. hashes and ampersands are downloadable.
+        :param url: the URL
+        :return: a URL adjusted for the presence of hashes and ampersands.
+        """
         url_to_fetch = url.url
         if url.scheme in {'s3', 's3a'} or url.host == 's3.amazonaws.com':
             url_to_fetch = f'{url.scheme}://{url.host}{quote(str(url.path))}'
@@ -224,13 +256,26 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _ftp_writer(dest, block, bar=None):
+        """
+        Write a data block to a data destination.
+        :param dest: an open file descriptor.
+        :param block: data.
+        :param bar: optional bar for displaying progress.
+        :return: None
+        """
         if bar:
             bar.update(len(block))
         dest.write(block)
 
     @staticmethod
     def _requires_update(target_file: Path, total_size: int, time_delta: timedelta = None) -> bool:
-
+        """
+        Check whether the file should be re-downloaded.
+        :param target_file: the location to which the file is to be downloaded.
+        :param total_size: the size of the file that we're trying to download.
+        :param time_delta: the maximum age of the file.
+        :return: whether or not we should download the file
+        """
         if target_file.exists():
             stat = target_file.stat()
             existing_size = stat.st_size
@@ -243,7 +288,14 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _generic_writer(source, target, block_size=16384, bar=None):
-
+        """
+        Write data from a source stream to a target stream.
+        :param source: a stream.
+        :param target: a stream.
+        :param block_size: size of block to write.
+        :param bar: optional bar for showing progress.
+        :return: None
+        """
         while 1:
             buf = source.read(block_size)
             if bar:
@@ -256,7 +308,17 @@ class DefaultExtractor(BaseExtractor):
 
     def get_file(self, cached_file_id: int, source_url: str, target_file: Path, refresh_interval: timedelta,
                  url_params=None, show_progress=False, force_download=False) -> Optional[dict]:
-
+        """
+        Download a file either using the FTP downloader or the generic downloader.
+        :param cached_file_id: the id of the cached file.
+        :param source_url: the url from which to get the file.
+        :param target_file: the path to which the file shoudl be downloaded.
+        :param refresh_interval: the maximum age of the file.
+        :param url_params: optional query parameters.
+        :param show_progress: whether to show a tqdm progress bar.
+        :param force_download: whether to force download regardless of file presence.
+        :return: A dict that contains the updated data for the cached file.
+        """
         try:
             parsed_url = up.urlparse(source_url)
             if parsed_url.scheme == 'ftp':
@@ -291,7 +353,12 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _update_file_cache(source_file: CachedFile, target_file: Path):
-
+        """
+        Deprecated.
+        :param source_file:
+        :param target_file:
+        :return:
+        """
         session = get_session()
         source_file.hash = file_hash(target_file).hexdigest()
         source_file.last_download = datetime.now()
