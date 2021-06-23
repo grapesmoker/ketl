@@ -40,9 +40,8 @@ Base = declarative_base()
 
 
 class API(Base, RestMixin):
-    """
-    The API class is the center of the organizational model for kETL. It configures the basic logic
-    of accessing some set of resources, setting up credentials as needed.
+    """ The API class is the center of the organizational model for kETL. It configures the basic logic
+        of accessing some set of resources, setting up credentials as needed.
     """
 
     __tablename__ = 'ketl_api_config'
@@ -58,9 +57,9 @@ class API(Base, RestMixin):
 
     @abstractmethod
     def setup(self):
-        """
-        All subclasses of API must implement the setup method to generate the actual configuration
+        """ All subclasses of API must implement the setup method to generate the actual configuration
         that will specify what is to be downloaded.
+
         :return:
         """
         if not self.name:
@@ -76,8 +75,8 @@ class API(Base, RestMixin):
 
     @property
     def api_hash(self) -> str:
-        """
-        Hash the API by hashing all of its sources and return the hex digest.
+        """ Hash the API by hashing all of its sources and return the hex digest.
+
         :return: Hex digest of the hash.
         """
 
@@ -89,8 +88,8 @@ class API(Base, RestMixin):
 
     @staticmethod
     def get_instance(model: Type['API'], name=None) -> 'API':
-        """
-        Retrieve an instance of the given subclass of API. There can only be one instance per name.
+        """ Retrieve an instance of the given subclass of API. There can only be one instance per name.
+
         :param model: A subclass of API.
         :param name: An optional name. Only one API per name is allowed.
         :return: An instance of the provided subclass of API.
@@ -101,8 +100,8 @@ class API(Base, RestMixin):
 
     @property
     def expected_files(self) -> Query:
-        """
-        Retrieve all the expected files under this API.
+        """ Retrieve all the expected files under this API.
+
         :return: A list of expected files.
         """
 
@@ -120,6 +119,11 @@ class API(Base, RestMixin):
 
     @property
     def cached_files(self) -> Query:
+        """ Retrieve a list of all :class:`CachedFile` configured for this
+        api and stored in the database.
+
+        :return: a batched query object.
+        """
 
         q: Query = get_session().query(
             CachedFile
@@ -132,6 +136,14 @@ class API(Base, RestMixin):
         return q.yield_per(self.BATCH_SIZE)
 
     def cached_files_on_disk(self, use_hash=True, missing=False, limit_ids=None) -> Query:
+        """ Retrieve a list of all cached files thought to (or known to) be on disk.
+
+        :param use_hash: if true, use the fact that the file has a hash in the db as evidence of existence.
+            if false, actually checks whether the file is present at its path.
+        :param missing: return any files that are configured but missing from disk.
+        :param limit_ids: limit the result set to the specific ids supplied.
+        :return: a batched query
+        """
 
         # actually checking existence can get pretty expensive for the
         # scenario where you have lots of files on a distributed file system
@@ -180,6 +192,9 @@ class API(Base, RestMixin):
 
 
 class ExpectedMode(enum.Enum):
+    """ An enum representing the various ways of generating :class:`ExpectedFile` s from
+    :class:`CachedFile` s.
+    """
 
     auto = 'auto'
     explicit = 'explicit'
@@ -191,8 +206,7 @@ class InvalidConfigurationError(Exception):
 
 
 class CachedFile(Base):
-    """
-    The CachedFile class represents a single file that may be downloaded by an extractor.
+    """ The CachedFile class represents a single file that may be downloaded by an extractor.
     """
 
     BLOCK_SIZE = 65536
@@ -224,8 +238,8 @@ class CachedFile(Base):
 
     @property
     def full_path(self) -> Path:
-        """
-        Return the absolute path of the cached file.
+        """ Return the absolute path of the cached file.
+
         :return: The absolute path of the file.
         """
         return Path(self.source.data_dir).resolve() / self.path
@@ -237,8 +251,8 @@ class CachedFile(Base):
 
     @property
     def file_hash(self):
-        """
-        Return the hash of the file.
+        """ Return the hash of the file.
+
         :return: The hash object (not the digest or the hex digest!) of the file.
         """
         if self.path:
@@ -249,8 +263,8 @@ class CachedFile(Base):
         return sha1()
 
     def preprocess(self, overwrite_on_extract=True) -> Optional[dict]:
-        """
-        Preprocess the file, extracting and creating expected files as needed.
+        """ Preprocess the file, extracting and creating expected files as needed.
+
         :return: Optionally returns an expected file, if one was created directly from the
             cached file. Otherwise returns None.
         """
@@ -271,8 +285,8 @@ class CachedFile(Base):
             return {'cached_file_id': self.id, 'path': str(self.full_path)}
 
     def _extract_tar(self, extract_dir: Path, expected_paths: Set[Path], overwrite_on_extract=True):
-        """
-        Extracts a tarball into the target directory. Creates expected files as needed.
+        """ Extracts a tarball into the target directory. Creates expected files as needed.
+
         :param extract_dir: The directory to which the tarball is to be extracted.
         :param expected_paths: The list of expected paths that should be generated from the archive.
         :return: None
@@ -293,8 +307,8 @@ class CachedFile(Base):
                         shutil.copyfileobj(source_file, target_file)
 
     def _extract_zip(self, extract_dir: Path, expected_paths: Set[Path], overwrite_on_extract=True):
-        """
-        Extracts a zip archive into the target directory. Creates expected files as needed.
+        """ Extracts a zip archive into the target directory. Creates expected files as needed.
+
         :param extract_dir: The directory to which the archive is to be extracted.
         :param expected_paths: The list of expected paths that should be generated from the archive.
         :return: None
@@ -318,6 +332,11 @@ class CachedFile(Base):
                         shutil.move(source, target)
 
     def _determine_target(self, extract_dir: Path) -> Optional[Path]:
+        """ Determine the target file to which a gz/lz archive is to be extracted.
+
+        :param extract_dir: the directory to which the file should be extracted
+        :return: either the full target path of the resulting file or None
+        """
 
         if len(self.expected_files) > 1:
             raise InvalidConfigurationError(f'More than 1 expected file configured for a gz archive: {self.path}')
@@ -332,8 +351,8 @@ class CachedFile(Base):
             raise InvalidConfigurationError('Something very bad has happened :(')
 
     def _extract_gzip(self, extract_dir: Path) -> None:
-        """
-        Extracts a gz file into the target directory.
+        """ Extracts a gz file into the target directory.
+
         :param extract_dir: The directory to which the archive is to be extracted.
         :return: None
         """
@@ -345,8 +364,8 @@ class CachedFile(Base):
                     shutil.copyfileobj(source, target)
 
     def _extract_lzma(self, extract_dir: Path) -> None:
-        """
-        Extracts an lzma file into the target directory.
+        """ Extracts an lzma file into the target directory.
+
         :param extract_dir: The directory to which the archive is to be extracted.
         :return: None
         """
@@ -359,8 +378,8 @@ class CachedFile(Base):
 
     def _generate_expected_files(self, extract_dir: Path, archived_paths: Set[Path], expected_paths: Set[Path]
                                  ) -> Set[Path]:
-        """
-        Generates expected file entries in the table if they do not already exist.
+        """ Generates expected file entries in the table if they do not already exist.
+
         :param extract_dir: The directory to which the archive is to be extracted.
         :param archived_paths: The list of paths contained in the archive.
         :param expected_paths: The list of expected files.
@@ -378,8 +397,7 @@ class CachedFile(Base):
 
 
 class Creds(Base):
-    """
-    A simple class for keeping track of credentials. Details are stored in a JSON blob.
+    """ A simple class for keeping track of credentials. Details are stored in a JSON blob.
 
     SECURITY WARNING: creds are currently stored unencrypted. Don't put anything in here
     that requires real security.
@@ -394,8 +412,7 @@ class Creds(Base):
 
 
 class Source(Base):
-    """
-    A class representing a source of some data. Can be subclassed on source type.
+    """ A class representing a source of some data. Can be subclassed on source type.
     """
 
     __tablename__ = 'ketl_source'
@@ -423,7 +440,11 @@ class Source(Base):
     }
 
     @property
-    def expected_files(self):
+    def expected_files(self) -> List['ExpectedFile']:
+        """ Return a list of expected files for the given source.
+
+        :return: a list of :class:`ExpectedFile` s.
+        """
         return [expected_file for cached_file in self.source_files
                 for expected_file in cached_file.expected_files]
 
@@ -438,8 +459,7 @@ class Source(Base):
 
 
 class ExpectedFile(Base):
-    """
-    A class representing expected files to actually be processed.
+    """ A class representing expected files to actually be processed.
     """
     __tablename__ = 'ketl_expected_file'
 
@@ -464,8 +484,8 @@ class ExpectedFile(Base):
 
     @property
     def file_hash(self):
-        """
-        Hash the expected file.
+        """ Hash the expected file.
+
         :return: The hash object.
         """
         if self.path:

@@ -19,12 +19,11 @@ class InvalidLoaderConfiguration(Exception):
 
 
 class BaseLoader:
-    """
-    The base loader class. Not intended to be instantiated directly.
+    """ The base loader class. Not intended to be instantiated directly.
     """
     def __init__(self, destination: Union[Path, str], **kwargs):
-        """
-        Initialize the loader.
+        """ Initialize the loader.
+
         :param destination: the destination to which to load.
         :param kwargs: ignored.
         """
@@ -32,16 +31,14 @@ class BaseLoader:
 
     @abstractmethod
     def load(self, data_frame: pd.DataFrame):
-        """
-        Abstract method that must be implemented by any subclass.
+        """ Abstract method that must be implemented by any subclass.
         Performs the actual load.
         """
         raise NotImplementedError
 
     @abstractmethod
     def finalize(self):
-        """
-        Abstract method that must be implemented by any subclass.
+        """ Abstract method that must be implemented by any subclass.
         Finalizes any closing that needs to happen.
         """
         raise NotImplementedError
@@ -50,8 +47,8 @@ class BaseLoader:
 class HashLoader(BaseLoader):
 
     def load(self, data_frame: pd.DataFrame, **kwargs):
-        """
-        Writes a hash to a file that contains the value of a data frame.
+        """ Writes a hash to a file that contains the value of a data frame.
+
         :param data_frame: a Pandas data frame.
         :param kwargs: ignored.
         :return: None
@@ -67,8 +64,8 @@ class HashLoader(BaseLoader):
 class LocalFileLoader(BaseLoader):
 
     def __init__(self, destination: Union[Path, str], naming_func: Callable = None, **kwargs):
-        """
-        A loader the loads the data to a local file. Not intended to be instantiated directly.
+        """A loader the loads the data to a local file. Not intended to be instantiated directly.
+
         :param destination: the path of the destination.
         :param naming_func: a callable that derives the name of a file from the data frame.
         :param kwargs: optional key word arguments to the loader.
@@ -101,12 +98,11 @@ class LocalFileLoader(BaseLoader):
 
 
 class ParquetLoader(LocalFileLoader):
-    """
-    A loader that writes data to a Parquet file.
+    """ A loader that writes data to a Parquet file.
     """
     def load(self, data_frame: pd.DataFrame):
-        """
-        Write data to a Parquet file.
+        """ Write data to a Parquet file.
+
         :param data_frame: a Pandas data frame.
         :return: None
         """
@@ -124,8 +120,8 @@ class ParquetLoader(LocalFileLoader):
             raise ex  # pragma: no cover
 
     def finalize(self):
-        """
-        If a writer is open, close it.
+        """ If a writer is open, close it.
+
         :return: None
         """
         if self.writer:
@@ -133,13 +129,11 @@ class ParquetLoader(LocalFileLoader):
 
 
 class DelimitedFileLoader(LocalFileLoader):
-    """
-    A loader that writes delimited data to a text file.
+    """ A loader that writes delimited data to a text file.
     """
 
     def load(self, data_frame: pd.DataFrame):
-        """
-        Write the data to a delimited text file.
+        """ Write the data to a delimited text file.
         :param data_frame: a Pandas data frame.
         :return: None.
         """
@@ -148,13 +142,12 @@ class DelimitedFileLoader(LocalFileLoader):
 
 
 class DatabaseLoader(BaseLoader):
-    """
-    A loader that writes data to a database table. The table is presumed to already exist.
+    """ A loader that writes data to a database table. The table is presumed to already exist.
     """
     def __init__(self, destination: str, **kwargs):
-        """
-        Initialize the loader and set up a delete statement to be issued to drop the data
+        """ Initialize the loader and set up a delete statement to be issued to drop the data
         in the table.
+
         :param destination: the database table to write to.
         :param kwargs: optional keyword arguments. Schema is used to set up delete statement.
         """
@@ -171,8 +164,8 @@ class DatabaseLoader(BaseLoader):
         self.clean = False
 
     def load(self, data_frame: pd.DataFrame):
-        """
-        Write the data to a table. Deletes data if it hasn't been deleted already.
+        """ Write the data to a table. Deletes data if it hasn't been deleted already.
+
         :param data_frame:
         :return:
         """
@@ -193,14 +186,13 @@ class DatabaseLoader(BaseLoader):
 
 
 class PickleLoader(LocalFileLoader):
-    """
-    A loader to write the data to a pickle file.
+    """ A loader to write the data to a pickle file.
     """
 
     def __init__(self,destination: Union[Path, str], naming_func: Callable = None,
                  pickler=None, **kwargs):
-        """
-        Initialize the loader. Sets up an alternative pickler if one is supplied (e.g. cloudpickle)
+        """ Initialize the loader. Sets up an alternative pickler if one is supplied (e.g. cloudpickle)
+
         :param destination: the file to which to write the data.
         :param naming_func: a function that derives the name of the file from the data frame.
         :param pickler: an optional pickler (e.g. cloudpickle.dump) to use instead of the standard one.
@@ -210,8 +202,8 @@ class PickleLoader(LocalFileLoader):
         self.pickler = pickler or pickle.dump
 
     def load(self, obj: Any):
-        """
-        Write the data to the file using the pickler.
+        """ Write the data to the file using the pickler.
+
         :param obj:
         :return:
         """

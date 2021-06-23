@@ -13,7 +13,9 @@ kETL
         :target: https://ketl.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
-
+.. image:: images/kettle.jpg
+        :target: https://www.clevelandart.org/art/1976.23
+        :alt: A picture of a kettle.
 
 
 konfigurable ETL

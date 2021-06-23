@@ -6,12 +6,11 @@ from urllib.parse import urljoin
 
 
 class RestMixin:
-    """
-    A mixin that contains calls that use a REST API.
+    """ A mixin that contains calls that use a REST API.
     """
     def get(self, base_url, resource, params=None, data_schema: Schema = None, result_schema: Schema = None, **kwargs):
-        """
-        Get a resource.
+        """ Get a resource.
+
         :param base_url: the URL.
         :param resource: the resource to get (gets URL/resource).
         :param params: optional URL parameters.
@@ -26,8 +25,8 @@ class RestMixin:
 
     def post(self, base_url, resource, data=None, json=None, data_schema: Optional[Schema] = None,
              result_schema: Optional[Schema] = None, **kwargs):
-        """
-        Post a resource.
+        """ Post a resource.
+
         :param base_url: the URL.
         :param resource: the resource to get (gets URL/resource).
         :param params: optional URL parameters.
@@ -42,8 +41,8 @@ class RestMixin:
 
     def put(self, base_url, resource, data=None, json=None, data_schema: Optional[Schema] = None,
             result_schema: Optional[Schema] = None, **kwargs):
-        """
-        Put a resource.
+        """ Put a resource.
+
         :param base_url: the URL.
         :param resource: the resource to get (gets URL/resource).
         :param params: optional URL parameters.
@@ -59,8 +58,8 @@ class RestMixin:
     @staticmethod
     def _execute_request(url, method: str, params=None, data=None, json=None,
                          data_schema: Optional[Schema] = None, result_schema: Optional[Schema] = None, **kwargs):
-        """
-        Execute a request.
+        """ Execute a request.
+
         :param url: the URL.
         :param method: the method to request.
         :param params: optional URL parameters.

@@ -31,8 +31,7 @@ class BaseExtractor:
 
 
 class DefaultExtractor(BaseExtractor):
-    """
-    The default extractor can fetch files from an FTP server or any location that
+    """ The default extractor can fetch files from an FTP server or any location that
     is openable via smart_open. It is up to the user to provide any credentials
     that are required to access the desired resources.
     """
@@ -70,12 +69,13 @@ class DefaultExtractor(BaseExtractor):
                 self.headers[self.auth_token['header']] = self.auth_token['token']
 
     def extract(self) -> List[Path]:
-        """
-        Run the extractor. Attempts to minimize the amount of repeated work by checking
-        which cached files actually exist, whether on disk or in the database, and batching
-        downloads. Optionally distributes the work across processes if the `concurrency`
-        parameter is set to `multiprocess`.
-        :return:
+        """ Run the extractor. Attempts to minimize the amount of repeated work by checking
+            which cached files actually exist, whether on disk or in the database, and batching
+            downloads. Optionally distributes the work across processes if the `concurrency`
+            parameter is set to `multiprocess`.
+
+        :return: a list of paths corresponding to all the :class:`ExpectedFile` s that the
+            extractor's API is responsible for.
         """
 
         session = get_session()
@@ -160,8 +160,8 @@ class DefaultExtractor(BaseExtractor):
     @classmethod
     def _fetch_ftp_file(cls, source_url: str, target_file: Path, refresh_interval: timedelta,
                         show_progress=False, force_download=False) -> bool:
-        """
-        Fetch a file from the FTP.
+        """ Fetch a file from the FTP.
+
         :param source_url: the source url to fetch.
         :param target_file: the location to which the file is to be downloaded.
         :param refresh_interval: maximum age of the file if it exists.
@@ -196,8 +196,8 @@ class DefaultExtractor(BaseExtractor):
     def _fetch_generic_file(cls, source_url: str, target_file: Path, refresh_interval: timedelta,
                             url_params=None, headers=None, auth=None,
                             show_progress=False, force_download=False) -> bool:
-        """
-        Fetch a file from any scheme which is smart_open-able (e.g. https://, s3://, etc).
+        """ Fetch a file from any scheme which is smart_open-able (e.g. https://, s3://, etc).
+
         :param source_url: the source url to fetch.
         :param target_file: the location to which the file is to be downloaded.
         :param refresh_interval: maximum age of the file if it exists.
@@ -239,8 +239,8 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _handle_s3_urls(url: furl.url):
-        """
-        Munge S3 URLs so that filenames that include e.g. hashes and ampersands are downloadable.
+        """ Munge S3 URLs so that filenames that include e.g. hashes and ampersands are downloadable.
+
         :param url: the URL
         :return: a URL adjusted for the presence of hashes and ampersands.
         """
@@ -256,8 +256,8 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _ftp_writer(dest, block, bar=None):
-        """
-        Write a data block to a data destination.
+        """ Write a data block to a data destination.
+
         :param dest: an open file descriptor.
         :param block: data.
         :param bar: optional bar for displaying progress.
@@ -269,8 +269,8 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _requires_update(target_file: Path, total_size: int, time_delta: timedelta = None) -> bool:
-        """
-        Check whether the file should be re-downloaded.
+        """ Check whether the file should be re-downloaded.
+
         :param target_file: the location to which the file is to be downloaded.
         :param total_size: the size of the file that we're trying to download.
         :param time_delta: the maximum age of the file.
@@ -288,8 +288,8 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _generic_writer(source, target, block_size=16384, bar=None):
-        """
-        Write data from a source stream to a target stream.
+        """ Write data from a source stream to a target stream.
+
         :param source: a stream.
         :param target: a stream.
         :param block_size: size of block to write.
@@ -308,8 +308,8 @@ class DefaultExtractor(BaseExtractor):
 
     def get_file(self, cached_file_id: int, source_url: str, target_file: Path, refresh_interval: timedelta,
                  url_params=None, show_progress=False, force_download=False) -> Optional[dict]:
-        """
-        Download a file either using the FTP downloader or the generic downloader.
+        """ Download a file either using the FTP downloader or the generic downloader.
+
         :param cached_file_id: the id of the cached file.
         :param source_url: the url from which to get the file.
         :param target_file: the path to which the file shoudl be downloaded.
@@ -353,8 +353,8 @@ class DefaultExtractor(BaseExtractor):
 
     @staticmethod
     def _update_file_cache(source_file: CachedFile, target_file: Path):
-        """
-        Deprecated.
+        """ Deprecated.
+
         :param source_file:
         :param target_file:
         :return:
