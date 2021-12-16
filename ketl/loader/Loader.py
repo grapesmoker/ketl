@@ -63,7 +63,8 @@ class HashLoader(BaseLoader):
 
 class LocalFileLoader(BaseLoader):
 
-    def __init__(self, destination: Union[Path, str], naming_func: Callable = None, **kwargs):
+    def __init__(self, destination: Union[Path, str], naming_func: Callable = None, clean: bool = True, **kwargs):
+
         """A loader the loads the data to a local file. Not intended to be instantiated directly.
 
         :param destination: the path of the destination.
@@ -77,14 +78,15 @@ class LocalFileLoader(BaseLoader):
 
         # deletes compatible with pre-3.8 python
 
-        if self.destination.is_dir():
-            files = self.destination.glob('*')
-            for file in files:
-                if file.exists():
-                    file.unlink()
-        else:
-            if self.destination.exists():
+        if clean:
+            if self.destination.exists() and self.destination.is_dir():
+                files = self.destination.glob('*')
+                for file in files:
+                    if file.exists():
+                        file.unlink()
+            elif self.destination.exists():
                 self.destination.unlink()
+
 
     def full_path(self, df: pd.DataFrame):
         if not self.naming_func:

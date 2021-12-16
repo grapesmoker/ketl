@@ -42,7 +42,8 @@ class DefaultExtractor(BaseExtractor):
                  overwrite_on_extract=True,
                  show_progress: bool = False,
                  concurrency: str = 'sync',
-                 on_disk_check='full'):
+                 on_disk_check='full',
+                 expected_file_generation='incremental'):
 
         if type(api_config) is int:
             self.api = get_session().query(API).filter(API.id == api_config).one()
@@ -57,7 +58,8 @@ class DefaultExtractor(BaseExtractor):
         self.show_progress = show_progress
         self.concurrency = concurrency
         self.on_disk_check = on_disk_check
-
+        self.expected_file_generation = expected_file_generation
+        
         if self.api.creds:
             details = self.api.creds.creds_details
             cookie = details.get('cookie', None)
@@ -142,7 +144,15 @@ class DefaultExtractor(BaseExtractor):
 
         current_files = {(ef[0], ef[1]): ef[2] for ef in q.yield_per(10000)}
 
-        for source_file in data_iterator:
+        if self.expected_file_generation == 'full':
+            cached_file_iterator = self.api.cached_files.options(defer(CachedFile.meta))
+        elif self.expected_file_generation == 'incremental':
+            cached_file_iterator = data_iterator
+        else:
+            raise ValueError('Unspecified expected file generation strategy')
+        
+        bar = tqdm(total=cached_file_iterator.count())
+        for source_file in cached_file_iterator:
             ef = source_file.preprocess()
             if ef:
                 key = (ef['path'], ef['cached_file_id'])
@@ -150,6 +160,7 @@ class DefaultExtractor(BaseExtractor):
                     new_expected_files.append(ef)
                 else:
                     updated_expected_files.append({'id': current_files[key], **ef})
+            bar.update(1)
 
         session.bulk_insert_mappings(ExpectedFile, new_expected_files)
         session.bulk_update_mappings(ExpectedFile, updated_expected_files)
