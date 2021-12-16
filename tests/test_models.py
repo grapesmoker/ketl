@@ -29,6 +29,11 @@ def test_api_config(session):
     api.setup()
     api = get_session().query(models.API).filter(models.API.name == 'API').one()
     assert api.name == 'API'
+    api_id = api.id
+
+    api = models.API()
+    api.setup()
+    assert api.id == api_id
 
 
 def test_api_hash(tmp_path):
@@ -73,7 +78,7 @@ def test_api_get_expected_files(session):
     ef2 = ExpectedFileFactory(path='file2', cached_file=cf1)
     ef3 = ExpectedFileFactory(path='file3', cached_file=cf2)
 
-    assert api.expected_files == [ef1, ef2, ef3]
+    assert api.expected_files.all() == [ef1, ef2, ef3]
     assert source.expected_files == [ef1, ef2, ef3]
 
 
@@ -89,6 +94,35 @@ def test_expected_file_hash(session, tmp_path):
         expected_file: models.ExpectedFile = ExpectedFileFactory(path=tf.name)
         assert expected_file.file_hash != default_hash
         assert len(expected_file.file_hash.hexdigest()) > 0
+
+
+def test_api_cached_files_on_disk(tmp_path):
+
+    api: models.API = APIFactory(name='my nice api')
+
+    with NamedTemporaryFile(dir=tmp_path, delete=False) as tf1:
+        tf1.write(b'hello world')
+
+    with NamedTemporaryFile(dir=tmp_path, delete=False) as tf2:
+        tf2.write(b'hello world')
+
+    with NamedTemporaryFile(dir=tmp_path, delete=False) as tf3:
+        tf3.write(b'hello world')
+
+    source = SourceFactory(data_dir=str(tmp_path), api_config=api)
+    cf1 = CachedFileFactory(path=tf1.name, hash=sha1(b'hello world').hexdigest(), source=source)
+    cf2 = CachedFileFactory(path=tf2.name, hash=sha1(b'hello world').hexdigest(), source=source)
+    cf3 = CachedFileFactory(path=tf3.name, hash=None, source=source)
+    cf4 = CachedFileFactory(path=str(tmp_path / 'missing'), hash=None, source=source)
+
+    assert {cf.id for cf in api.cached_files_on_disk(use_hash=True, missing=True).all()} == {cf3.id, cf4.id}
+    assert {cf.id for cf in api.cached_files_on_disk(use_hash=True, missing=False).all()} == {cf1.id, cf2.id}
+    assert {cf.id for cf in api.cached_files_on_disk(use_hash=False, missing=False).all()} == {cf1.id, cf2.id, cf3.id}
+    assert {cf.id for cf in api.cached_files_on_disk(use_hash=False, missing=True).all()} == {cf4.id}
+    assert {cf.id for cf in api.cached_files_on_disk(
+        use_hash=True, missing=False, limit_ids=[cf1.id]).all()} == {cf1.id}
+    assert {cf.id for cf in api.cached_files_on_disk(
+        use_hash=False, missing=False, limit_ids=[cf2.id]).all()} == {cf2.id}
 
 
 def test_cached_file_cache(session, tmp_path):
@@ -149,8 +183,9 @@ def test_cached_file_extract_gzip(tmp_path):
         with gzip.open(compressed_file, mode='wb') as cf:
             shutil.copyfileobj(tf, cf)
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
-                                                       extract_to=str(tmp_path))
+    source: models.Source = SourceFactory(data_dir='data_dir')
+    cached_file: models.CachedFile = CachedFileFactory(
+        path=str(compressed_file), is_archive=True, source=source, extract_to=str(tmp_path))
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(result_file), cached_file=cached_file)
     cached_file.preprocess()
 
@@ -175,8 +210,9 @@ def test_cached_file_extract_lzma(tmp_path):
         with lzma.open(compressed_file, mode='wb') as cf:
             shutil.copyfileobj(tf, cf)
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
-                                                       extract_to=str(tmp_path))
+    source: models.Source = SourceFactory(data_dir='data_dir')
+    cached_file: models.CachedFile = CachedFileFactory(
+        path=str(compressed_file), is_archive=True, source=source, extract_to=str(tmp_path))
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(result_file), cached_file=cached_file)
     cached_file.preprocess()
 
@@ -210,10 +246,13 @@ def test_cached_file_extract_zip(tmp_path):
     tf1_path.unlink()
     tf2_path.unlink()
 
+    source: models.Source = SourceFactory(data_dir='data_dir')
     cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
+                                                       source=source,
                                                        extract_to=str(tmp_path),
                                                        expected_mode=models.ExpectedMode.explicit)
-    expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(tf1_path), cached_file=cached_file)
+    expected_file: models.ExpectedFile = ExpectedFileFactory(
+        path=str(tf1_path), cached_file=cached_file, archive_path=tf1_path.name)
 
     cached_file.preprocess()
 
@@ -242,6 +281,14 @@ def test_cached_file_extract_zip(tmp_path):
                 found2 = True
 
     assert found1 and found2
+
+    for ef in cached_file.expected_files:
+        get_session().delete(ef)
+    get_session().commit()
+
+    cached_file.preprocess(overwrite_on_extract=False)
+
+    assert len(cached_file.expected_files) == 2
 
 
 def test_cached_file_extract_tar(session, tmp_path):
@@ -267,10 +314,13 @@ def test_cached_file_extract_tar(session, tmp_path):
     tf1_path.unlink()
     tf2_path.unlink()
 
+    source: models.Source = SourceFactory(data_dir='data_dir')
     cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
+                                                       source=source,
                                                        extract_to=str(tmp_path),
                                                        expected_mode=models.ExpectedMode.explicit)
-    expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(tf1_path), cached_file=cached_file)
+    expected_file: models.ExpectedFile = ExpectedFileFactory(
+        path=str(tf1_path), cached_file=cached_file, archive_path=tf1_path.name)
 
     cached_file.preprocess()
 
@@ -299,3 +349,39 @@ def test_cached_file_extract_tar(session, tmp_path):
                 found2 = True
 
     assert found1 and found2
+
+    for ef in cached_file.expected_files:
+        get_session().delete(ef)
+    get_session().commit()
+
+    cached_file.preprocess(overwrite_on_extract=False)
+
+    assert len(cached_file.expected_files) == 2
+
+
+def test_determine_target(tmp_path):
+
+    session = get_session()
+    cached_file: models.CachedFile = CachedFileFactory(path='path.tar.gz', expected_mode=models.ExpectedMode.auto)
+    assert cached_file._determine_target(tmp_path) == tmp_path / 'path.tar'
+    cached_file.expected_mode = models.ExpectedMode.explicit
+
+    with pytest.raises(models.InvalidConfigurationError):
+        cached_file._determine_target(tmp_path)
+
+    expected_file1: models.ExpectedFile = ExpectedFileFactory(cached_file=cached_file,
+                                                              path='path.tar')
+
+    assert cached_file._determine_target(tmp_path) == tmp_path / expected_file1.path
+
+    cached_file.expected_mode = models.ExpectedMode.self
+
+    with pytest.raises(models.InvalidConfigurationError):
+        cached_file._determine_target(tmp_path)
+
+    expected_file2: models.ExpectedFile = ExpectedFileFactory(cached_file=cached_file,
+                                                              path='path2.tar')
+
+    with pytest.raises(models.InvalidConfigurationError):
+        cached_file._determine_target(tmp_path)
+

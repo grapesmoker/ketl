@@ -32,7 +32,7 @@ I might do that. First, we need to configure the API.
     from ketl.db import models
     from ketl.extractor import DefaultExtractor
     from ketl.transformer import DelimitedTableTransformer
-    from ketl.loader import DataFrameLoader, DatabaseLoader
+    from ketl.loader import DelimitedFileLoader, DatabaseLoader
     from ketl.utils.db_utils import get_or_create
 
     class CensusAPI(models.API):
@@ -52,16 +52,16 @@ This is the entirety of the setup to grab the economy-wide dataset from the busi
 page of the Census Bureau. A few things merit mention:
 
 * :code:`get_or_create` is a utility function which returns a database instance with the
-supplied parameters, or creates one if such an instance does not exist. It also returns
-whether or not the instance was created, which can be ignored unless you need to know this.
+  supplied parameters, or creates one if such an instance does not exist. It also returns
+  whether or not the instance was created, which can be ignored unless you need to know this.
 * If the :class:`ExpectedFile` is equivalent to the CachedFile which is to be downloaded, the
-:code:`expected_mode` argument of the :class:`CachedFile` constructor can be set to
-:class:`ExpectedMode.success`. This will automatically create an :class:`ExpectedFile` with
-identical information to the downloaded file.
+  :code:`expected_mode` argument of the :class:`CachedFile` constructor can be set to
+  :class:`ExpectedMode.success`. This will automatically create an :class:`ExpectedFile` with
+  identical information to the downloaded file.
 * Although we have here defined the configuration statically, we need not do so as long as we
-have some place to begin. For example, it would be just as correct to scrape the public-facing
-website of the Census Bureau and generate the :class:`CachedFile` entries dynamically that way.
-In fact, that would be a paradigmatic usage of kETL.
+  have some place to begin. For example, it would be just as correct to scrape the public-facing
+  website of the Census Bureau and generate the :class:`CachedFile` entries dynamically that way.
+  In fact, that would be a paradigmatic usage of kETL.
 
 Once the API is configured, we are off to the races:
 
@@ -170,7 +170,7 @@ Loaders
 +++++++
 
 The :class:`Loader` class is responsible for the final stage of the pipeline: putting the data
-somewhere, either on disk or to a database. The :class:`DataFrameLoader` writes a data frame
-to disk as either a Parquet or a CSV file, and the :class:`DatabaseLoader` loads the data into
+somewhere, either on disk or to a database. The :class:`DelimitedFileLoader` writes a data frame
+to disk a CSV file, and the :class:`DatabaseLoader` loads the data into
 a database table. Any database that can be interfaced with via SQLalchemy should work fine.
 

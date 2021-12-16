@@ -1,16 +1,10 @@
 from abc import abstractmethod
 from itertools import chain
 from pathlib import Path
-from typing import List, Tuple, Union, Optional, Dict, Callable
-from tqdm import tqdm
+from typing import List, Union, Dict, Callable
 
 import pandas as pd
-import numpy as np
 import json
-import io
-import inflection
-
-from ketl.db.settings import get_session
 
 
 class AdapterError(Exception):
@@ -22,13 +16,23 @@ class NoValidSourcesError(AdapterError):
 
 
 class BaseTransformer:
-
+    """
+    The base transformer class. Should not be instantiated directly.
+    """
     # TODO: init should take the configuration kwargs
 
     def __init__(self, transpose: bool = False, concat_on_axis: Union[int, str] = None,
                  columns: List[Union[str, int]] = None, skip_errors: bool = False,
                  rename: Union[Callable, Dict[str, str]] = None, **kwargs):
+        """ Initialize the transformer.
 
+        :param transpose: whether to transpose the resulting matrix.
+        :param concat_on_axis: whether to concatenate data along some axis.
+        :param columns: column names.
+        :param skip_errors: whether to skip input files if an error is encountered.
+        :param rename: a dict or function suitable for passing to the Pandas rename function.
+        :param kwargs: optional keyword arguments to pass to reader.
+        """
         self.transpose = transpose
         self.concat_on_axis = concat_on_axis
         self.columns = columns
@@ -39,21 +43,39 @@ class BaseTransformer:
 
     @abstractmethod
     def transform(self, source_files: List[Path]) -> pd.DataFrame:
+        """ Run the actual transformation.
 
+        :param source_files: the source files containing the data.
+        :return: a data frame.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def _build_data_frame(self, source_files: List[Path]) -> pd.DataFrame:
+        """ Construct a data frame from the list of inpute files.
 
+        :param source_files: the source files containing the data.
+        :return: a data frame.
+        """
         raise NotImplementedError
 
 
 class DelimitedTableTransformer(BaseTransformer):
-
+    """
+    A transformer that changes the input data into a delimited table.
+    """
     def __init__(self, transpose: bool = False, concat_on_axis: Union[str, int] = None,
                  columns: List[Union[str, int]] = None, skip_errors: bool = False,
                  rename: Union[Callable, Dict[str, str]] = None, **kwargs):
+        """ Initialize the transformer.
 
+        :param transpose: whether to transpose the resulting data.
+        :param concat_on_axis: whether to concatenate the data along an axis.
+        :param columns: list of column names.
+        :param skip_errors: whether to skip errors.
+        :param rename: a dict or function suitable for passing to the Pandas rename function.
+        :param kwargs: keyword arguments to be passed to the reader.
+        """
         super(DelimitedTableTransformer, self).__init__(
             transpose, concat_on_axis, columns, skip_errors, rename, **kwargs)
 
@@ -72,7 +94,12 @@ class DelimitedTableTransformer(BaseTransformer):
         self.reader_kwargs.update(self.passed_kwargs)
 
     def _build_data_frame(self, source_files: List[Path]):
+        """ Build a data frame from a list of source files. All kwargs set at initialization are passed
+        to the CSV reader.
 
+        :param source_files: a list of source files to read data from.
+        :return: a Pandas data frame.
+        """
         data_frames = [pd.read_csv(source_file, **self.reader_kwargs) for source_file in source_files]
 
         # for the special case where every file is a column. this assumes all data can fit into memory
@@ -90,7 +117,12 @@ class DelimitedTableTransformer(BaseTransformer):
                     yield chunk
 
     def transform(self, source_files: List[Path]) -> pd.DataFrame:
+        """ Transform the data contained in the list of source files to something else. By default
+        simply returns the data frame consisting of the raw data.
 
+        :param source_files: a list of source files.
+        :return: a Pandas data frame.
+        """
         for df in self._build_data_frame(source_files):
             yield df
 

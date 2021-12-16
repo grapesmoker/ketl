@@ -7,7 +7,7 @@ from ketl.db.settings import get_session
 from ketl.etl.Pipeline import ETLPipeline, InvalidPipelineError
 from ketl.extractor.Extractor import DefaultExtractor
 from ketl.transformer.Transformer import DelimitedTableTransformer
-from ketl.loader.Loader import DataFrameLoader
+from ketl.loader.Loader import DelimitedFileLoader
 from tests.factories import APIFactory
 
 
@@ -19,8 +19,8 @@ def test_pipeline_init_without_fanout():
     ex2 = DefaultExtractor(api)
     tf1 = DelimitedTableTransformer()
     tf2 = DelimitedTableTransformer()
-    l1 = DataFrameLoader('out.csv')
-    l2 = DataFrameLoader('out.csv')
+    l1 = DelimitedFileLoader('out.csv')
+    l2 = DelimitedFileLoader('out.csv')
 
     pipeline = ETLPipeline(extractors=[ex1, ex2], transformers=[tf1, tf2], loaders=[l1, l2])
 
@@ -43,8 +43,8 @@ def test_pipeline_init_with_fanout(tmp_path):
     ex2 = DefaultExtractor(api)
     tf1 = DelimitedTableTransformer()
     tf2 = DelimitedTableTransformer()
-    l1 = DataFrameLoader('out.csv')
-    l2 = DataFrameLoader('out.csv')
+    l1 = DelimitedFileLoader('out.csv')
+    l2 = DelimitedFileLoader('out.csv')
 
     fanout = {
         ex1: [tf1, tf2],
@@ -65,8 +65,8 @@ def test_pipeline_init_bad_fanout():
     ex2 = DefaultExtractor(api)
     tf1 = DelimitedTableTransformer()
     tf2 = DelimitedTableTransformer()
-    l1 = DataFrameLoader('out.csv')
-    l2 = DataFrameLoader('out.csv')
+    l1 = DelimitedFileLoader('out.csv')
+    l2 = DelimitedFileLoader('out.csv')
 
     fanout = {
         ex1: [tf1, l1],
@@ -106,7 +106,7 @@ def test_fire_extractors(mock_extract):
     assert result == {ex1: [Path('file1'), Path('file2')], ex2: [Path('file3')]}
 
 
-@mock.patch('ketl.loader.Loader.DataFrameLoader.load')
+@mock.patch('ketl.loader.Loader.DelimitedFileLoader.load')
 @mock.patch('ketl.transformer.Transformer.DelimitedTableTransformer.transform')
 def test_fire_transformers(mock_transform: mock.Mock, mock_load: mock.Mock):
 
@@ -114,13 +114,15 @@ def test_fire_transformers(mock_transform: mock.Mock, mock_load: mock.Mock):
 
     ex1 = DefaultExtractor(api)
     tf1 = DelimitedTableTransformer()
-    l1 = DataFrameLoader('out.csv')
+    l1 = DelimitedFileLoader('out.csv')
 
     pipeline = ETLPipeline(extractors=[ex1], transformers=[tf1], loaders=[l1])
 
     extraction_results = {ex1: [Path('file1')]}
 
-    mock_transform.return_value = [mock.Mock()]
+    mock_df = mock.Mock()
+    mock_df.empty = False
+    mock_transform.return_value = [mock_df]
     mock_load.return_value = None
 
     pipeline._fire_transformers(extraction_results)

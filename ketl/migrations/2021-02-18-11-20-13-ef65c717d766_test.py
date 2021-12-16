@@ -8,12 +8,26 @@ Create Date: 2021-02-18 11:20:13.238002
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
-
+from alembic import context
+from furl import furl
 # revision identifiers, used by Alembic.
 revision = 'ef65c717d766'
 down_revision = None
 branch_labels = None
 depends_on = None
+
+engine_url = furl(context.get_bind().engine.url)
+print(engine_url)
+use_postgres = False
+if furl.scheme == 'postgresql':
+    JSON_COL = postgresql.JSONB
+    col_args = {'astext_type': sa.Text(), 'nullable': True}
+    index_args = {'postgresql_using': 'gin'}
+    use_postgres = True
+else:
+    JSON_COL = sa.JSON
+    index_args = {}
+    col_args = {}
 
 
 def upgrade():
@@ -30,7 +44,7 @@ def upgrade():
     op.create_table('ketl_creds',
                     sa.Column('id', sa.Integer(), nullable=False),
                     sa.Column('api_config_id', sa.Integer(), nullable=True),
-                    sa.Column('creds_details', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+                    sa.Column('creds_details', JSON_COL(**col_args)),
                     sa.ForeignKeyConstraint(['api_config_id'], ['ketl_api_config.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id')
                     )
@@ -40,20 +54,21 @@ def upgrade():
                     sa.Column('base_url', sa.String(), nullable=True),
                     sa.Column('data_dir', sa.String(), nullable=True),
                     sa.Column('api_config_id', sa.Integer(), nullable=True),
-                    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+                    sa.Column('meta', JSON_COL(**col_args)),
                     sa.ForeignKeyConstraint(['api_config_id'], ['ketl_api_config.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
                     sa.UniqueConstraint('base_url', 'data_dir', 'api_config_id')
                     )
     op.create_index(op.f('ix_ketl_source_base_url'), 'ketl_source', ['base_url'], unique=False)
     op.create_index(op.f('ix_ketl_source_data_dir'), 'ketl_source', ['data_dir'], unique=False)
-    op.create_index('ix_ketl_source_meta', 'ketl_source', ['meta'], unique=False, postgresql_using='gin')
+    # if use_postgres:
+    op.create_index('ix_ketl_source_meta', 'ketl_source', ['meta'], unique=False, **index_args)
     op.create_index(op.f('ix_ketl_source_source_type'), 'ketl_source', ['source_type'], unique=False)
     op.create_table('ketl_cached_file',
                     sa.Column('id', sa.Integer(), nullable=False),
                     sa.Column('source_id', sa.Integer(), nullable=True),
                     sa.Column('url', sa.String(), nullable=True),
-                    sa.Column('url_params', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+                    sa.Column('url_params', JSON_COL(**col_args)),
                     sa.Column('path', sa.String(), nullable=True),
                     sa.Column('last_download', sa.DateTime(), nullable=True),
                     sa.Column('last_update', sa.DateTime(), nullable=True),
@@ -64,7 +79,7 @@ def upgrade():
                     sa.Column('is_archive', sa.Boolean(), nullable=True),
                     sa.Column('extract_to', sa.String(), nullable=True),
                     sa.Column('expected_mode', sa.Enum('auto', 'explicit', 'self', name='expectedmode'), nullable=True),
-                    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+                    sa.Column('meta', JSON_COL(**col_args)),
                     sa.ForeignKeyConstraint(['source_id'], ['ketl_source.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
                     sa.UniqueConstraint('source_id', 'url', 'path')
@@ -75,7 +90,7 @@ def upgrade():
     op.create_index(op.f('ix_ketl_cached_file_is_archive'), 'ketl_cached_file', ['is_archive'], unique=False)
     op.create_index(op.f('ix_ketl_cached_file_last_download'), 'ketl_cached_file', ['last_download'], unique=False)
     op.create_index(op.f('ix_ketl_cached_file_last_update'), 'ketl_cached_file', ['last_update'], unique=False)
-    op.create_index('ix_ketl_cached_file_meta', 'ketl_cached_file', ['meta'], unique=False, postgresql_using='gin')
+    op.create_index('ix_ketl_cached_file_meta', 'ketl_cached_file', ['meta'], unique=False, **index_args)
     op.create_index(op.f('ix_ketl_cached_file_path'), 'ketl_cached_file', ['path'], unique=False)
     op.create_index(op.f('ix_ketl_cached_file_refresh_interval'), 'ketl_cached_file', ['refresh_interval'],
                     unique=False)
@@ -91,7 +106,7 @@ def upgrade():
                     sa.Column('processed', sa.Boolean(), nullable=True),
                     sa.Column('file_type', sa.String(), nullable=True),
                     sa.Column('last_processed', sa.DateTime(), nullable=True),
-                    sa.Column('meta', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+                    sa.Column('meta', JSON_COL(**col_args)),
                     sa.ForeignKeyConstraint(['cached_file_id'], ['ketl_cached_file.id'], ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
                     sa.UniqueConstraint('path', 'cached_file_id')
@@ -100,7 +115,7 @@ def upgrade():
     op.create_index(op.f('ix_ketl_expected_file_file_type'), 'ketl_expected_file', ['file_type'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_last_processed'), 'ketl_expected_file', ['last_processed'],
                     unique=False)
-    op.create_index('ix_ketl_expected_file_meta', 'ketl_expected_file', ['meta'], unique=False, postgresql_using='gin')
+    op.create_index('ix_ketl_expected_file_meta', 'ketl_expected_file', ['meta'], unique=False, **index_args)
     op.create_index(op.f('ix_ketl_expected_file_path'), 'ketl_expected_file', ['path'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_processed'), 'ketl_expected_file', ['processed'], unique=False)
     op.create_index(op.f('ix_ketl_expected_file_size'), 'ketl_expected_file', ['size'], unique=False)
