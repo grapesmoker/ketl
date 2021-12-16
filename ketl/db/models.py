@@ -1,4 +1,3 @@
-import requests
 import enum
 import tarfile
 import zipfile
@@ -12,7 +11,6 @@ from hashlib import sha1
 from pathlib import Path
 from furl import furl
 from typing import Optional, Set, List, Dict, Type
-from marshmallow import Schema
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     Column, Boolean, Integer, String, ForeignKey, DateTime,
