@@ -84,8 +84,22 @@ class ETLPipeline:
                 for transformer in transformers:
                     loaders = self.fanout.get(transformer, [])
                     for df in transformer.transform(result):  # type: pd.DataFrame
-                        if not df.empty:
-                            for loader in loaders:  # type: BaseLoader
-                                loader.load(df)
+                        self._fire_loaders(df, loaders)
                     for loader in loaders:
                         loader.finalize()
+
+    @staticmethod
+    def _fire_loaders(df, loaders):
+        # we consume a data frame as expected
+        if isinstance(df, pd.DataFrame):
+            if not df.empty:
+                for loader in loaders:  # type: BaseLoader
+                    loader.load(df)
+        else:
+            # we'll do our best to handle this and trust
+            # that you configured the loader correctly
+            # but we'll warn you
+            from warnings import warn
+            for loader in loaders:
+                warn(f'Loading data of type {type(df)} that is not a DataFrame with {type(loader)}')
+                loader.load(df)
