@@ -432,11 +432,6 @@ class Source(Base):
                                 passive_deletes=True,
                                 lazy='joined')
 
-    __mapper_args__ = {
-        'polymorphic_identity': 'source',
-        'polymorphic_on': source_type
-    }
-
     @property
     def expected_files(self) -> List['ExpectedFile']:
         """ Return a list of expected files for the given source.
