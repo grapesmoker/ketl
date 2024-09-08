@@ -1,14 +1,11 @@
-import gzip
-import tarfile
-import zipfile
-import shutil
+"""Miscellaneous file utilities."""
 
-from typing import Set
 from hashlib import sha1
 from pathlib import Path
 
 
 def file_hash(path: Path, block_size=65536):
+    """Hash the binary file."""
     s = sha1()
 
     if path.exists():

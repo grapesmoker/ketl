@@ -1,4 +1,5 @@
 import urllib.parse as up
+import fsspec
 
 from abc import abstractmethod
 from datetime import datetime, timedelta
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import List, Union, Optional
 
 from furl import furl
-from smart_open import open as smart_open
+# from smart_open import open as smart_open
 from tqdm import tqdm
 
 from ketl.db.models import API, CachedFile, ExpectedFile
@@ -36,7 +37,7 @@ class BaseExtractor:
 class DefaultExtractor(BaseExtractor):
     """
     The default extractor can fetch files from an FTP server or any location that
-    is openable via smart_open. It is up to the user to provide any credentials
+    is openable via fsspec. It is up to the user to provide any credentials
     that are required to access the desired resources.
     """
     BLOCK_SIZE = 16384
@@ -154,7 +155,7 @@ class DefaultExtractor(BaseExtractor):
             url.add(source_file.url_params)
 
         updated = False
-        with smart_open(url.url, 'rb', ignore_ext=True, transport_params=transport_params) as r:
+        with fsspec.open(url.url, 'rb', ignore_ext=True, transport_params=transport_params) as r:
             total_size = getattr(r, 'content_length', -1)
             if cls._requires_update(target_file, total_size, source_file.refresh_interval) or force_download:
                 target_file.parent.mkdir(exist_ok=True, parents=True)

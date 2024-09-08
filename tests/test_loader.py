@@ -4,6 +4,8 @@ import pandas as pd
 from hashlib import sha256
 from tempfile import NamedTemporaryFile
 
+from sqlalchemy import text
+
 from ketl.loader.Loader import BaseLoader, DatabaseLoader, DataFrameLoader, HashLoader
 from ketl.db.settings import get_engine
 
@@ -56,7 +58,7 @@ def test_data_frame_loader_csv(data_frame, tmp_path):
     assert loader.dest_path == csv_file
     assert loader.file_format == DataFrameLoader.FileFormat.CSV
     assert loader.kwargs == {'index': False}
-    assert not   csv_file.exists()
+    assert not csv_file.exists()
 
     loader.load(data_frame)
 
@@ -113,8 +115,8 @@ def test_database_loader(data_frame):
 
     engine = get_engine()
     with engine.connect() as conn:
-        conn.execute('DROP TABLE IF EXISTS test_table')
-        conn.execute('CREATE TABLE IF NOT EXISTS test_table (x INTEGER, y INTEGER, z INTEGER)')
+        conn.execute(text('DROP TABLE IF EXISTS test_table'))
+        conn.execute(text('CREATE TABLE IF NOT EXISTS test_table (x INTEGER, y INTEGER, z INTEGER)'))
 
     loader = DatabaseLoader('test_table', index=False)
 

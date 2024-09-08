@@ -58,6 +58,7 @@ class ETLPipeline:
                 transformers = self.fanout[op]
                 # TODO: parallelize this using joblib or something like that
                 for transformer in transformers:
+                    print(f'running transformer {transformer.__class__.__name__}')
                     loaders = self.fanout[transformer]
                     for df in transformer.transform(result):
                         for loader in loaders:  # type: BaseLoader

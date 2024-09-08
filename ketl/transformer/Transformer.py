@@ -165,7 +165,12 @@ class JsonTableTransformer(BaseTransformer):
                     df._source_file = source_file
                 else:
                     data = self._extract_data(source_file, self.record_path)
-                    df = pd.read_json(data, **self.reader_kwargs)
+                    if isinstance(data, str):
+                        df = pd.read_json(data, **self.reader_kwargs)
+                    elif isinstance(data, dict):
+                        df = pd.DataFrame.from_records(data)
+                    else:
+                        raise TypeError(f'Unknown type of data: {type(data)}')
                     df._source_file = source_file
 
                 yield df.transpose() if self.transpose else df

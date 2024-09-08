@@ -122,7 +122,8 @@ class DatabaseLoader(BaseLoader):
         # the final result to the desired destination, but it's also *a lot* simpler
 
         if not self.clean:
-            self.engine.execute(self.delete_stmt)
+            with self.engine.connect() as conn:
+                conn.execute(self.delete_stmt)
             self.clean = True
 
         data_frame.to_sql(self.destination, self.engine, index=False, if_exists='append', schema=self.schema)

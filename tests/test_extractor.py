@@ -202,7 +202,7 @@ def test_fetch_ftp(mock_requires_update, mock_ftp_class, tmp_path):
     assert not extractor._fetch_ftp_file(cached_file, Path(tf.name), tqdm(1))
 
 
-@mock.patch('ketl.extractor.Extractor.smart_open')
+@mock.patch('ketl.extractor.Extractor.fsspec.open')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._requires_update')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._generic_writer')
 def test_fetch_generic_file(mock_generic_writer, mock_requires_update, mock_smart_open, tmp_path):

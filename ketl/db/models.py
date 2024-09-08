@@ -31,8 +31,9 @@ Base = declarative_base()
 
 class API(Base, RestMixin):
     """
-    The API class is the center of the organizational model for kETL. It configures the basic logic
-    of accessing some set of resources, setting up credentials as needed.
+    The API class is the center of the organizational model for kETL.
+
+    It configures the basic logic of accessing some set of resources, setting up credentials as needed.
     """
 
     __tablename__ = 'ketl_api_config'

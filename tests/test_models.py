@@ -1,51 +1,64 @@
-import pytest
-import zipfile
 import gzip
-import tarfile
 import lzma
 import shutil
-
-from tempfile import NamedTemporaryFile, TemporaryDirectory
-from pathlib import Path
+import tarfile
+import zipfile
 from hashlib import sha1
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
-from tests.factories import APIFactory, SourceFactory, CachedFileFactory, ExpectedFileFactory, CredsFactory
+import pytest
 
-from ketl.db.settings import get_session
 from ketl.db import models
+from ketl.db.settings import get_session
+from tests.factories import (
+    APIFactory,
+    CachedFileFactory,
+    ExpectedFileFactory,
+    SourceFactory,
+)
+
+
+@pytest.fixture
+def api() -> models.API:
+    return APIFactory(name="my nice api")
+
+
+@pytest.fixture
+def source(api) -> models.Source:
+    return SourceFactory(base_url="http://base.url", data_dir="/download/dir", api_config=api)
 
 
 def test_api_config(session):
 
-    api = models.API(name='my nice api')
+    api = models.API(name="my nice api")
     api.setup()
 
     assert api.id is not None
 
-    api = get_session().query(models.API).filter(models.API.name == 'my nice api').one()
-    assert api.name == 'my nice api'
+    api = get_session().query(models.API).filter(models.API.name == "my nice api").one()
+    assert api.name == "my nice api"
 
     api = models.API()
     api.setup()
-    api = get_session().query(models.API).filter(models.API.name == 'API').one()
-    assert api.name == 'API'
+    api = get_session().query(models.API).filter(models.API.name == "API").one()
+    assert api.name == "API"
 
 
-def test_api_hash(tmp_path):
+def test_api_hash(tmp_path, api):
 
-    api = APIFactory(name='my nice api')
     initial_api_hash = api.api_hash
-    expected_api_hash = sha1(b'my nice api')
+    expected_api_hash = sha1(b"my nice api")
 
     assert initial_api_hash == expected_api_hash.hexdigest()
 
-    source: models.Source = SourceFactory(base_url='http://base.url', data_dir='/download/dir', api_config=api)
+    source: models.Source = SourceFactory(base_url="http://base.url", data_dir="/download/dir", api_config=api)
 
     with NamedTemporaryFile(dir=tmp_path, delete=False) as tf:
-        tf.write(b'hello world - cached file')
+        tf.write(b"hello world - cached file")
         tf.close()
 
-        cached_file: models.CachedFile = CachedFileFactory(source=source, path=tf.name)
+        cached_file: models.CachedFile = CachedFileFactory(source=source, path=tf.name)  # noqa
 
     expected_api_hash.update(source.source_hash.digest())
     api_hash = api.api_hash
@@ -63,15 +76,13 @@ def test_api_get_instance(session):
     assert instance1 == instance2
 
 
-def test_api_get_expected_files(session):
+def test_api_get_expected_files(session, api, source):
 
-    api = APIFactory()
-    source = SourceFactory(api_config=api)
-    cf1 = CachedFileFactory(path='path1', source=source)
-    cf2 = CachedFileFactory(path='path2', source=source)
-    ef1 = ExpectedFileFactory(path='file1', cached_file=cf1)
-    ef2 = ExpectedFileFactory(path='file2', cached_file=cf1)
-    ef3 = ExpectedFileFactory(path='file3', cached_file=cf2)
+    cf1 = CachedFileFactory(path="path1", source=source)
+    cf2 = CachedFileFactory(path="path2", source=source)
+    ef1 = ExpectedFileFactory(path="file1", cached_file=cf1)
+    ef2 = ExpectedFileFactory(path="file2", cached_file=cf1)
+    ef3 = ExpectedFileFactory(path="file3", cached_file=cf2)
 
     assert api.expected_files == [ef1, ef2, ef3]
     assert source.expected_files == [ef1, ef2, ef3]
@@ -79,12 +90,12 @@ def test_api_get_expected_files(session):
 
 def test_expected_file_hash(session, tmp_path):
 
-    expected_file: models.ExpectedFile = ExpectedFileFactory(path='/path/to/nonexistent/file')
+    expected_file: models.ExpectedFile = ExpectedFileFactory(path="/path/to/nonexistent/file")
     default_hash = expected_file.file_hash
     assert default_hash is not None
 
     with NamedTemporaryFile(dir=tmp_path) as tf:
-        tf.write(b'hello world')
+        tf.write(b"hello world")
 
         expected_file: models.ExpectedFile = ExpectedFileFactory(path=tf.name)
         assert expected_file.file_hash != default_hash
@@ -93,11 +104,11 @@ def test_expected_file_hash(session, tmp_path):
 
 def test_cached_file_cache(session, tmp_path):
 
-    missing_cached_file: models.CachedFile = CachedFileFactory(path='/path/to/missing/file')
+    missing_cached_file: models.CachedFile = CachedFileFactory(path="/path/to/missing/file")
     assert missing_cached_file.file_hash.hexdigest() == sha1().hexdigest()
 
     with NamedTemporaryFile(dir=tmp_path, delete=False) as tf:
-        tf.write(b'hello world - cached file')
+        tf.write(b"hello world - cached file")
         tf.close()
 
         cached_file: models.CachedFile = CachedFileFactory(path=tf.name)
@@ -107,19 +118,18 @@ def test_cached_file_cache(session, tmp_path):
         assert cached_file_hash.hexdigest() != sha1().hexdigest()
 
 
-def test_source_hash(session, tmp_path):
+def test_source_hash(session, tmp_path, source):
 
-    source: models.Source = SourceFactory(base_url='http://base.url', data_dir='/download/dir')
     source_hash = source.source_hash.hexdigest()
-    assert source_hash == sha1(bytes(source.base_url + source.data_dir, 'utf-8')).hexdigest()
+    assert source_hash == sha1(bytes(source.base_url + source.data_dir, "utf-8")).hexdigest()
 
     with NamedTemporaryFile(dir=tmp_path, delete=False) as tf:
-        tf.write(b'hello world - cached file')
+        tf.write(b"hello world - cached file")
         tf.close()
 
         cached_file: models.CachedFile = CachedFileFactory(source=source, path=tf.name)
 
-    expected_hash = sha1(bytes(source.base_url + source.data_dir, 'utf-8'))
+    expected_hash = sha1(bytes(source.base_url + source.data_dir, "utf-8"))
     expected_hash.update(cached_file.file_hash.digest())
 
     source_hash_with_cached_file = source.source_hash.hexdigest()
@@ -129,100 +139,114 @@ def test_source_hash(session, tmp_path):
 
 def test_cached_file_full_path(session):
 
-    source: models.Source = SourceFactory(base_url='http://base.url', data_dir='/download/dir')
-    cached_file: models.CachedFile = CachedFileFactory(path='path/to/file', source=source)
+    source: models.Source = SourceFactory(base_url="http://base.url", data_dir="/download/dir")
+    cached_file: models.CachedFile = CachedFileFactory(path="path/to/file", source=source)
 
-    assert cached_file.full_path == Path('/download/dir/path/to/file')
+    assert cached_file.full_path == Path("/download/dir/path/to/file")
 
 
-def test_cached_file_extract_gzip(tmp_path):
+def test_cached_file_extract_gzip(tmp_path, source):
 
     tf = NamedTemporaryFile(dir=tmp_path, delete=False)
-    tf.write(b'hello world - gzip')
+    tf.write(b"hello world - gzip")
     tf.close()
 
     raw_file = Path(tf.name)
-    compressed_file = Path(tmp_path) / 'test.gz'
-    result_file = Path(tmp_path) / 'test'
+    compressed_file = Path(tmp_path) / "test.gz"
+    result_file = Path(tmp_path) / "test"
 
-    with open(raw_file, 'rb') as tf:
-        with gzip.open(compressed_file, mode='wb') as cf:
+    with open(raw_file, "rb") as tf:
+        with gzip.open(compressed_file, mode="wb") as cf:
             shutil.copyfileobj(tf, cf)
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
-                                                       extract_to=str(tmp_path))
+    cached_file: models.CachedFile = CachedFileFactory(
+        path=str(compressed_file),
+        is_archive=True,
+        extract_to=str(tmp_path),
+        source=source,
+    )
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(result_file), cached_file=cached_file)
     cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
 
-    with open(expected_file.path, 'rb') as f:
+    with open(expected_file.path, "rb") as f:
         data = f.read()
-        assert data == b'hello world - gzip'
+        assert data == b"hello world - gzip"
 
 
-def test_cached_file_extract_lzma(tmp_path):
+def test_cached_file_extract_lzma(tmp_path, source):
 
     tf = NamedTemporaryFile(dir=tmp_path, delete=False)
-    tf.write(b'hello world - lzma')
+    tf.write(b"hello world - lzma")
     tf.close()
 
     raw_file = Path(tf.name)
-    compressed_file = Path(tmp_path) / 'test.xz'
-    result_file = Path(tmp_path) / 'test'
+    compressed_file = Path(tmp_path) / "test.xz"
+    result_file = Path(tmp_path) / "test"
 
-    with open(raw_file, 'rb') as tf:
-        with lzma.open(compressed_file, mode='wb') as cf:
+    with open(raw_file, "rb") as tf:
+        with lzma.open(compressed_file, mode="wb") as cf:
             shutil.copyfileobj(tf, cf)
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
-                                                       extract_to=str(tmp_path))
+    cached_file: models.CachedFile = CachedFileFactory(
+        path=str(compressed_file),
+        is_archive=True,
+        extract_to=str(tmp_path),
+        source=source,
+    )
     expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(result_file), cached_file=cached_file)
     cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
 
-    with open(expected_file.path, 'rb') as f:
+    with open(expected_file.path, "rb") as f:
         data = f.read()
-        assert data == b'hello world - lzma'
+        assert data == b"hello world - lzma"
 
 
-def test_cached_file_extract_zip(tmp_path):
+def test_cached_file_extract_zip(tmp_path, source):
 
     temp_path = Path(tmp_path)
 
     tf1 = NamedTemporaryFile(dir=tmp_path, delete=False)
-    tf1.write(b'expected file')
+    tf1.write(b"expected file")
     tf1.close()
     tf1_path = temp_path / Path(tf1.name).name
 
     tf2 = NamedTemporaryFile(dir=tmp_path, delete=False)
-    tf2.write(b'not expected file')
+    tf2.write(b"not expected file")
     tf2.close()
     tf2_path = temp_path / Path(tf2.name).name
 
-    compressed_file = Path(tmp_path) / 'test.zip'
+    compressed_file = Path(tmp_path) / "test.zip"
 
-    with zipfile.ZipFile(compressed_file, mode='w') as zf:
+    with zipfile.ZipFile(compressed_file, mode="w") as zf:
         zf.write(tf1_path, arcname=tf1_path.name)
         zf.write(tf2_path, arcname=tf2_path.name)
 
     tf1_path.unlink()
     tf2_path.unlink()
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
-                                                       extract_to=str(tmp_path),
-                                                       expected_mode=models.ExpectedMode.explicit)
-    expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(tf1_path), cached_file=cached_file)
+    cached_file: models.CachedFile = CachedFileFactory(
+        path=str(compressed_file),
+        source=source,
+        is_archive=True,
+        extract_to=str(tmp_path),
+        expected_mode=models.ExpectedMode.explicit,
+    )
+    expected_file: models.ExpectedFile = ExpectedFileFactory(
+        path=str(tf1_path), cached_file=cached_file, archive_path=Path(tf1.name).name
+    )
 
     cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
     assert not Path(tf2.name).exists()
 
-    with open(expected_file.path, 'rb') as f:
+    with open(expected_file.path, "rb") as f:
         data = f.read()
-        assert data == b'expected file'
+        assert data == b"expected file"
 
     Path(expected_file.path).unlink()
 
@@ -234,52 +258,58 @@ def test_cached_file_extract_zip(tmp_path):
     found1 = False
     found2 = False
     for ef in cached_file.expected_files:
-        with open(ef.path, 'rb') as f:
+        with open(ef.path, "rb") as f:
             data = f.read()
-            if data == b'expected file':
+            if data == b"expected file":
                 found1 = True
-            elif data == b'not expected file':
+            elif data == b"not expected file":
                 found2 = True
 
     assert found1 and found2
 
 
-def test_cached_file_extract_tar(session, tmp_path):
+def test_cached_file_extract_tar(session, tmp_path, source):
 
     temp_path = Path(tmp_path)
 
     tf1 = NamedTemporaryFile(dir=tmp_path, delete=False)
-    tf1.write(b'expected file')
+    tf1.write(b"expected file")
     tf1.close()
     tf1_path = temp_path / Path(tf1.name).name
 
     tf2 = NamedTemporaryFile(dir=tmp_path, delete=False)
-    tf2.write(b'not expected file')
+    tf2.write(b"not expected file")
     tf2.close()
     tf2_path = temp_path / Path(tf2.name).name
 
-    compressed_file = Path(tmp_path) / 'test.tar.gz'
+    compressed_file = Path(tmp_path) / "test.tar.gz"
 
-    with tarfile.open(compressed_file, mode='w:gz') as cf:
+    with tarfile.open(compressed_file, mode="w:gz") as cf:
         cf.add(tf1_path, arcname=tf1_path.name)
         cf.add(tf2_path, arcname=tf2_path.name)
 
     tf1_path.unlink()
     tf2_path.unlink()
 
-    cached_file: models.CachedFile = CachedFileFactory(path=str(compressed_file), is_archive=True,
-                                                       extract_to=str(tmp_path),
-                                                       expected_mode=models.ExpectedMode.explicit)
-    expected_file: models.ExpectedFile = ExpectedFileFactory(path=str(tf1_path), cached_file=cached_file)
+    cached_file: models.CachedFile = CachedFileFactory(
+        path=str(compressed_file),
+        is_archive=True,
+        extract_to=str(tmp_path),
+        expected_mode=models.ExpectedMode.explicit,
+        source=source,
+    )
+    expected_file: models.ExpectedFile = ExpectedFileFactory(
+        path=str(tf1_path), cached_file=cached_file, archive_path=Path(tf1.name).name
+    )
 
     cached_file.preprocess()
 
     assert Path(expected_file.path).exists()
     assert not Path(tf2.name).exists()
 
-    with open(expected_file.path, 'rb') as f:
+    with open(expected_file.path, "rb") as f:
         data = f.read()
-        assert data == b'expected file'
+        assert data == b"expected file"
 
     Path(expected_file.path).unlink()
 
@@ -291,11 +321,11 @@ def test_cached_file_extract_tar(session, tmp_path):
     found1 = False
     found2 = False
     for ef in cached_file.expected_files:
-        with open(ef.path, 'rb') as f:
+        with open(ef.path, "rb") as f:
             data = f.read()
-            if data == b'expected file':
+            if data == b"expected file":
                 found1 = True
-            elif data == b'not expected file':
+            elif data == b"not expected file":
                 found2 = True
 
     assert found1 and found2
