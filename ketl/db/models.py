@@ -316,7 +316,6 @@ class CachedFile(Base):
         zf = zipfile.ZipFile(self.full_path)
         archived_paths = {Path(file) for file in zf.namelist()}
         if self.expected_mode == ExpectedMode.auto:
-            breakpoint()
             missing_files = self._generate_expected_files(extract_dir, archived_paths, expected_paths)
             if overwrite_on_extract:
                 zf.extractall(path=extract_dir)
@@ -389,7 +388,7 @@ class CachedFile(Base):
         session = get_session()
 
         missing_paths = {path for path in archived_paths if extract_dir / path not in expected_paths}
-        expected_files = [ExpectedFile(path=str(extract_dir / path), cached_file=self)
+        expected_files = [ExpectedFile(path=str(extract_dir / path), cached_file_id=self.id)
                           for path in missing_paths]
         session.bulk_save_objects(expected_files)
         session.commit()
