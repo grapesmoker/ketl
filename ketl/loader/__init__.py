@@ -1,1 +1,1 @@
-from .Loader import BaseLoader, HashLoader, DatabaseLoader, DataFrameLoader
+from .Loader import BaseLoader, HashLoader, DatabaseLoader, ParquetLoader, DelimitedFileLoader

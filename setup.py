@@ -10,10 +10,10 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = ['Click>=7.0', 'furl~=2.1.0', 'smart_open~=4.1.2',
-                'marshmallow~=3.10.0', 'tqdm==4.55.1', 'pyarrow~=3.0.0',
-                'requests~=2.25.1', 'sqlalchemy~=1.3.23', 'pandas~=1.2.2',
-                'inflection~=0.5.1']
+requirements = ['Click>=7.0', 'furl~=2.1.0', 'smart_open~=5.2.1',
+                'marshmallow~=3.14.1', 'tqdm~=4.62.3', 'pyarrow~=6.0.0',
+                'requests~=2.26.0', 'sqlalchemy~=1.4.27', 'pandas~=1.3.4',
+                'inflection~=0.5.1', 'more_itertools~=8.7.0']
 
 setup_requirements = ['pytest-runner', ]
 
@@ -51,6 +51,6 @@ setup(
     test_suite='tests',
     tests_require=test_requirements,
     url='https://github.com/grapesmoker/ketl',
-    version='0.1.0',
+    version='0.1.6',
     zip_safe=False,
 )

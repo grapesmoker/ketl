@@ -2,29 +2,25 @@
 """Console script for ketl."""
 import sys
 import click
-import alembic.config
 
 from ketl.db import settings
+from ketl.db.models import Base
 
 
 @click.group()
-@click.pass_context
-def ketl(ctx):
+def ketl():
 
-    ctx.ensure_object(dict)
-
-    import os
-    print(os.getcwd())
+    pass
 
 
 @ketl.command()
 @click.option('--db-dsn')
-@click.pass_context
-def apply_migrations(ctx, db_dsn):
+def create_tables(db_dsn=None):
 
-    settings.DB_DSN = db_dsn
-    import os
-    print(os.getcwd())
+    db_dsn = db_dsn or settings.DB_DSN
+
+    engine = settings.get_engine(db_dsn)
+    Base.metadata.create_all(engine)
 
 
 if __name__ == "__main__":

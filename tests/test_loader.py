@@ -1,12 +1,17 @@
 import pytest
 import pandas as pd
+import pickle
 
 from hashlib import sha256
 from tempfile import NamedTemporaryFile
 
 from sqlalchemy import text
 
-from ketl.loader.Loader import BaseLoader, DatabaseLoader, DataFrameLoader, HashLoader
+from ketl.loader.Loader import (
+    BaseLoader, DatabaseLoader, HashLoader, DelimitedFileLoader, ParquetLoader,
+    LocalFileLoader, PickleLoader
+)
+
 from ketl.db.settings import get_engine
 
 
@@ -47,16 +52,15 @@ def test_hash_loader(data_frame, tmp_path):
     loader.finalize()
 
 
-def test_data_frame_loader_csv(data_frame, tmp_path):
+def test_local_file_loader_csv(data_frame, tmp_path):
 
     csv_file = tmp_path / 'df.csv'
     with open(csv_file, 'w') as f:
         f.write('hello world')
 
-    loader = DataFrameLoader(csv_file, index=False)
+    loader = DelimitedFileLoader(csv_file, index=False)
 
-    assert loader.dest_path == csv_file
-    assert loader.file_format == DataFrameLoader.FileFormat.CSV
+    assert loader.destination == csv_file
     assert loader.kwargs == {'index': False}
     assert not csv_file.exists()
 
@@ -69,14 +73,13 @@ def test_data_frame_loader_csv(data_frame, tmp_path):
     assert df_out.equals(data_frame)
 
 
-def test_data_frame_loader_parquet(data_frame, tmp_path):
+def test_local_file_loader_parquet(data_frame, tmp_path):
 
     parquet_file = tmp_path / 'df.parquet'
 
-    loader = DataFrameLoader(parquet_file, index=False)
+    loader = ParquetLoader(parquet_file, index=False)
 
-    assert loader.dest_path == parquet_file
-    assert loader.file_format == DataFrameLoader.FileFormat.PARQUET
+    assert loader.destination == parquet_file
     assert loader.kwargs == {'index': False}
     assert not parquet_file.exists()
 
@@ -89,11 +92,64 @@ def test_data_frame_loader_parquet(data_frame, tmp_path):
 
     assert df_out.equals(data_frame)
 
+    df1 = data_frame.copy(deep=True)
+    df1.attrs['name'] = 'df1'
+    df2 = data_frame.copy(deep=True)
+    df2.attrs['name'] = 'df2'
 
-def test_data_frame_loader_unknown():
+    def naming_function(df):
+        return df.attrs['name'] + '.parquet'
 
-    with pytest.raises(ValueError):
-        loader = DataFrameLoader('some-file.unknown')
+    pq_file1 = tmp_path / 'df1.parquet'
+    pq_file2 = tmp_path / 'df2.parquet'
+
+    loader = ParquetLoader(tmp_path, naming_func=naming_function, index=False)
+    loader.load(df1)
+    loader.load(df2)
+    loader.finalize()
+
+    df1_out = pd.read_parquet(pq_file1)
+    df2_out = pd.read_parquet(pq_file2)
+
+    assert data_frame.equals(df1_out)
+    assert data_frame.equals(df2_out)
+
+
+def test_local_file_loader_directory(tmp_path):
+
+    with open(tmp_path / 'some_other_file.txt', 'w') as f:
+        f.write('hello world')
+
+    assert (tmp_path / 'some_other_file.txt').exists()
+
+    _ = LocalFileLoader(tmp_path)
+
+    assert not (tmp_path / 'some_other_file.txt').exists()
+
+
+def test_local_file_loader_naming_func(data_frame, tmp_path):
+
+    data_frame.attrs['name'] = 'my_nice_df'
+
+    def naming_function(df):
+        return df.attrs['name'] + '.csv'
+
+    loader = LocalFileLoader(tmp_path, naming_func=naming_function)
+
+    assert loader.full_path(data_frame) == tmp_path / 'my_nice_df.csv'
+
+
+def test_local_file_loader_pickler(tmp_path):
+
+    pickle_file = tmp_path / 'out.pickle'
+    data = {'key': 'value'}
+
+    loader = PickleLoader(pickle_file)
+    loader.load(data)
+
+    assert pickle_file.exists()
+    result = pickle.load(open(pickle_file, 'rb'))
+    assert result == data
 
 
 def test_database_loader_init():

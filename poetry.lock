@@ -771,6 +771,17 @@ files = [
 ]
 
 [[package]]
+name = "more-itertools"
+version = "10.5.0"
+description = "More routines for operating on iterables, beyond itertools"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "more-itertools-10.5.0.tar.gz", hash = "sha256:5482bfef7849c25dc3c6dd53a6173ae4795da2a41a80faea6700d9f5846c5da6"},
+    {file = "more_itertools-10.5.0-py3-none-any.whl", hash = "sha256:037b0d3203ce90cca8ab1defbbdac29d5f993fc20131f3664dc8d6acfa872aef"},
+]
+
+[[package]]
 name = "mypy-extensions"
 version = "1.0.0"
 description = "Type system extensions for programs checked with the mypy type checker."
@@ -1808,4 +1819,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "0d882242c178de0acb004f7d5ec02561c058c906a3404bad5b551d3b6b81daf7"
+content-hash = "4d2a7b2338d1b53aaf61162eee9b166a16bdce30830bb6a623057f539a66d293"

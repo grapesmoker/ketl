@@ -1,0 +1,2 @@
+[run]
+omit = ketl/migrations/*, ketl/utils/db_utils.py, ketl/cli.py

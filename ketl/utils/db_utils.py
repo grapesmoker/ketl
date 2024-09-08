@@ -2,6 +2,7 @@ from typing import Any
 
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import MetaData
 
 from ketl.db.settings import get_session
 
@@ -31,6 +32,11 @@ def get_or_create(model, session=None, **kwargs) -> tuple[Any, bool]:
         except IntegrityError:
             session.rollback()
             return session.query(model).filter_by(**kwargs).one(), False
-        except Exception as ex:
-            print(ex)
-            raise ex
+
+
+def merge_meta(*metas) -> MetaData:
+    merged = MetaData()
+    for meta in metas:
+        for table in meta.tables.values():
+            table.tometadata(merged)
+    return merged

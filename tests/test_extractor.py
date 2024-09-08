@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 import io
 import pandas as pd
@@ -8,9 +10,11 @@ from tqdm import tqdm
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from unittest import mock
+from hashlib import sha1
+from furl import furl
 
 from ketl.db import models
-from ketl.extractor.Extractor import SourceTargetPair, BaseExtractor, DefaultExtractor
+from ketl.extractor.Extractor import BaseExtractor, DefaultExtractor
 from ketl.utils.file_utils import file_hash
 from tests.factories import APIFactory, CredsFactory, SourceFactory, CachedFileFactory, ExpectedFileFactory
 
@@ -44,34 +48,37 @@ def test_default_extractor_init():
 
     extractor = DefaultExtractor(api)
 
-    assert extractor.auth == creds_details['auth']
+    assert extractor.auth == creds.creds_details['auth']
     assert extractor.headers['Cookie'] == 'my-cookie=my-value'
-    assert extractor.auth_token == creds_details['auth_token']
+    assert extractor.auth_token == creds.creds_details['auth_token']
     assert extractor.headers == {
         'Cookie': 'my-cookie=my-value',
         'Token': 'my-token'
     }
 
+    extractor_with_id = DefaultExtractor(api.id)
+    extractor_with_name = DefaultExtractor(api.name)
+    assert extractor_with_id.api == extractor.api == extractor_with_name.api
 
-def test_source_target_path():
 
-    download_dir = '/path/to/download'
-    source_url = 'http://path/to/source'
-    api: models.API = APIFactory(name='my nice api')
-    source: models.Source = SourceFactory(base_url=source_url, data_dir=download_dir, api_config=api)
+def test_handle_s3_urls():
 
-    cached_file1: models.CachedFile = CachedFileFactory(url='path/to/file1',
-                                                        path='path/to/file1/on/disk', source=source)
-    cached_file2: models.CachedFile = CachedFileFactory(url='path/to/file2', source=source)
-
+    api = APIFactory(name='my nice api')
     extractor = DefaultExtractor(api)
 
-    expected_source_targets = [
-        SourceTargetPair(cached_file1, Path(download_dir).resolve() / 'path/to/file1/on/disk'),
-        SourceTargetPair(cached_file2, Path(download_dir).resolve() / 'file2')
-    ]
+    bad_s3_url = 's3://some-bucket/badly#formed-file'
+    url = furl(bad_s3_url)
 
-    assert expected_source_targets == extractor.source_target_list
+    result = extractor._handle_s3_urls(url)
+
+    assert result == 's3://some-bucket/badly%23formed-file'
+
+    bad_s3_url = 's3://some-bucket/badly&formed-file'
+    url = furl(bad_s3_url)
+
+    result = extractor._handle_s3_urls(url)
+
+    assert result == 's3://some-bucket/badly%26formed-file'
 
 
 def test_ftp_writer():
@@ -142,9 +149,9 @@ def test_update_cache_file(session, tmp_path):
     assert cached_file.size == 11
 
 
+@mock.patch('ketl.extractor.Extractor.Pool')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor.get_file')
-@mock.patch('ketl.extractor.Extractor.DefaultExtractor.source_target_list', new_callable=mock.PropertyMock)
-def test_extract(mock_source_files_list, mock_get_file):
+def test_extract(mock_get_file, mock_pool):
 
     api: models.API = APIFactory()
     source: models.Source = SourceFactory(api_config=api, data_dir='data/dir')
@@ -153,6 +160,7 @@ def test_extract(mock_source_files_list, mock_get_file):
 
     cached_file1: models.CachedFile = CachedFileFactory(url='url/to/file1', path='path/to/file1',
                                                         expected_mode=models.ExpectedMode.self,
+                                                        hash='hash1',
                                                         source=source)
     cached_file2: models.CachedFile = CachedFileFactory(url='url/to/file2', path='path/to/file2',
                                                         expected_mode=models.ExpectedMode.self,
@@ -161,18 +169,65 @@ def test_extract(mock_source_files_list, mock_get_file):
                                                         expected_mode=models.ExpectedMode.self,
                                                         source=source)
 
-    mock_source_files_list.return_value = [
-        SourceTargetPair(cached_file1, Path('path/to/file1')),
-        SourceTargetPair(cached_file2, Path('path/to/file2')),
-        SourceTargetPair(cached_file3, Path('path/to/file3')),
+    mock_get_file.side_effect = [
+        {'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1},
+        {'id': cached_file2.id, 'hash': 'hash2', 'last_download': datetime.datetime.now(), 'size': 1},
+        None
     ]
-
-    mock_get_file.side_effect = [cached_file1, cached_file2, None]
 
     expected_files = extractor.extract()
 
     for i, ef in enumerate(expected_files):
-        assert str(ef) == f'data/dir/path/to/file{i + 1}'
+        assert f'data/dir/path/to/file{i + 1}' in str(ef)
+
+    # test with only missing files
+    extractor = DefaultExtractor(api, skip_existing_files=True, on_disk_check='hash')
+
+    mock_get_file.side_effect = [
+        {'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1},
+        {'id': cached_file2.id, 'hash': 'hash2', 'last_download': datetime.datetime.now(), 'size': 1},
+        None
+    ]
+
+    expected_files = extractor.extract()
+
+    for i, ef in enumerate(expected_files):
+        assert f'data/dir/path/to/file{i + 1}' in str(ef)
+
+    # test with multiprocessing
+
+    mock_future1 = mock.Mock()
+    mock_future2 = mock.Mock()
+    mock_future3 = mock.Mock()
+
+    mock_future1.get.return_value = {
+        'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1
+    }
+    mock_future2.get.return_value = {
+        'id': cached_file2.id, 'hash': 'hash2', 'last_download': datetime.datetime.now(), 'size': 1
+    }
+    mock_future3.get.return_value = None
+
+    mock_futures = mock.Mock()
+    mock_futures.get.return_value = [mock_future1, mock_future2, mock_future3]
+
+    mock_mp_pool = mock.Mock()
+    mock_mp_pool.starmap_async.return_value = mock_futures
+    mock_mp_pool.join.return_value = None
+    mock_pool.__enter__.return_value = mock_mp_pool
+
+    extractor = DefaultExtractor(api, concurrency='multiprocess')
+
+    mock_get_file.side_effect = [
+        {'id': cached_file1.id, 'hash': 'hash1', 'last_download': datetime.datetime.now(), 'size': 1},
+        {'id': cached_file2.id, 'hash': 'hash2', 'last_download': datetime.datetime.now(), 'size': 1},
+        None
+    ]
+
+    expected_files = extractor.extract()
+
+    for i, ef in enumerate(expected_files):
+        assert f'data/dir/path/to/file{i + 1}' in str(ef)
 
 
 @mock.patch('ketl.extractor.Extractor.FTP')
@@ -194,12 +249,12 @@ def test_fetch_ftp(mock_requires_update, mock_ftp_class, tmp_path):
     cached_file: models.CachedFile = CachedFileFactory(url='url/to/file')
 
     with NamedTemporaryFile(dir=tmp_path) as tf:
-        result = extractor._fetch_ftp_file(cached_file, Path(tf.name), tqdm(1))
+        result = extractor._fetch_ftp_file(cached_file.full_url, Path(tf.name), timedelta(days=7))
 
     assert result
 
     mock_requires_update.return_value = False
-    assert not extractor._fetch_ftp_file(cached_file, Path(tf.name), tqdm(1))
+    assert not extractor._fetch_ftp_file(cached_file.full_url, Path(tf.name), timedelta(days=7))
 
 
 @mock.patch('ketl.extractor.Extractor.fsspec.open')
@@ -222,42 +277,81 @@ def test_fetch_generic_file(mock_generic_writer, mock_requires_update, mock_smar
     cached_file: models.CachedFile = CachedFileFactory(url='url/to/file', url_params={'query': 'item'})
 
     with NamedTemporaryFile(dir=tmp_path) as tf:
-        result = extractor._fetch_generic_file(cached_file, Path(tf.name),
+        result = extractor._fetch_generic_file(cached_file.full_url, Path(tf.name),
+                                               timedelta(days=7),
+                                               url_params=cached_file.url_params,
                                                headers={'Bearer': 'Token'},
                                                auth={'username': 'user', 'password': 'password'})
 
     assert result
 
     mock_requires_update.return_value = False
-    assert not extractor._fetch_generic_file(cached_file, Path(tf.name))
+    assert not extractor._fetch_generic_file(cached_file.full_url, Path(tf.name), timedelta(days=7))
 
 
+@mock.patch('ketl.extractor.Extractor.Path.stat')
+@mock.patch('ketl.extractor.Extractor.file_hash')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._update_file_cache')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._fetch_generic_file')
 @mock.patch('ketl.extractor.Extractor.DefaultExtractor._fetch_ftp_file')
-def test_get_file(mock_fetch_ftp, mock_fetch_generic, mock_update):
+def test_get_file(mock_fetch_ftp, mock_fetch_generic, mock_update, mock_hash, mock_stat):
 
     mock_update.return_value = None
+    mock_hash.side_effect = [sha1(b'hash1'), sha1(b'hash2'), sha1(b'hash3')]
+    mock_stat_result = mock.Mock()
+    mock_stat_result.st_size = 1024
+
+    def mock_stat_side_effect(*args, **kwargs):
+        return mock_stat_result
+    
+    mock_stat.side_effect = mock_stat_side_effect
 
     api = APIFactory(name='my nice api')
-    source1: models.Source = SourceFactory(base_url='ftp://base/url')
-    source2: models.Source = SourceFactory(base_url='http://base/url')
-    cached_file: models.CachedFile = CachedFileFactory(url='file', source=source1, url_params={'query': 'item'})
+    source1: models.Source = SourceFactory(base_url='ftp://base/url', data_dir='data_dir')
+    source2: models.Source = SourceFactory(base_url='http://base/url', data_dir='data_dir')
+    cached_file: models.CachedFile = CachedFileFactory(
+        url='file', source=source1, path='cached_file', url_params={'query': 'item'})
 
     extractor = DefaultExtractor(api)
 
-    mock_fetch_ftp.return_value = True
-    assert extractor.get_file(cached_file, Path('target')) == cached_file
+    interval = datetime.timedelta(days=7)
 
-    cached_file: models.CachedFile = CachedFileFactory(url='http://url/to/file', source=source2,
-                                                       url_params={'query': 'item'})
+    mock_fetch_ftp.return_value = True
+    result = extractor.get_file(
+        cached_file.id, cached_file.full_url, cached_file.full_path, interval
+    )
+    # can't patch datetime
+    assert isinstance(result['last_download'], datetime.datetime)
+    del result['last_download']
+    assert result == {
+        'hash': sha1(b'hash1').hexdigest(),
+        'id': 1,
+        'size': 1024
+    }
+
+    cached_file: models.CachedFile = CachedFileFactory(
+        url='file', source=source2, path='cached_file', url_params={'query': 'item'})
 
     mock_fetch_generic.return_value = True
-    assert extractor.get_file(cached_file, Path('target')) == cached_file
+    result = extractor.get_file(
+        cached_file.id, cached_file.full_url, cached_file.full_path, interval
+    )
+    # can't patch datetime
+    assert isinstance(result['last_download'], datetime.datetime)
+    del result['last_download']
+    assert result == {
+        'hash': sha1(b'hash2').hexdigest(),
+        'id': 2,
+        'size': 1024
+    }
 
     mock_fetch_generic.return_value = False
-    assert extractor.get_file(cached_file, Path('target')) is None
+    assert extractor.get_file(
+        cached_file.id, cached_file.full_url, cached_file.full_path, interval
+    ) is None
 
     mock_fetch_generic.side_effect = [ValueError('something bad happened')]
     mock_fetch_generic.return_value = True
-    assert extractor.get_file(cached_file, Path('target')) is None
+    assert extractor.get_file(
+        cached_file.id, cached_file.full_url, cached_file.full_path, interval
+    ) is None
